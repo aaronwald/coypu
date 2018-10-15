@@ -1,0 +1,13 @@
+---
+loggers: 
+  ws-logger:
+    level: debug
+    file: websocket.log
+
+coypu: 
+  websocket:
+    logger: ws-logger
+    cpu: 3
+
+do-gdax: true
+do-server-test: false

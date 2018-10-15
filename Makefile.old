@@ -1,0 +1,73 @@
+CC=clang++-3.5
+GFLAGS_DIR=lib/gflags
+GMOCK_DIR=lib/gmock-1.7.0
+GTEST_DIR=lib/gtest-1.7.0
+GLOG_DIR=lib/glog
+INCLUDES=-Isrc/main -I$(GFLAGS_DIR)/include -I$(GMOCK_DIR)/include -I$(GTEST_DIR)/include  -I$(GLOG_DIR)/include
+COYPU_VERSION="0.0.1"
+GIT_REVISION="$(shell git rev-parse HEAD)"
+CFLAGS=-std=c++0x  -I/usr/local/include -Wall -Wpedantic $(INCLUDES) -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_GIT_REV='$(GIT_REVISION)' -DCOYPU_VERSION='$(COYPU_VERSION)'
+
+# this will remove DLOG comments but not VLOG
+DEBUG_CFLAGS =-DNDEBUG=1 $CFLAGS
+LIB_DIRS=-L$(GFLAGS_DIR)/lib -L$(GTEST_DIR) -L$(GMOCK_DIR) -L$(GLOG_DIR)/lib -Wl,-rpath,$(GLOG_DIR)/lib,-rpath,$(GFLAGS_DIR)/lib
+DEP_LIBS=-llua5.2  -lgflags -lpthread -lglog -lunwind
+LDFLAGS=$(LIB_DIRS) $(DEP_LIBS)
+TEST_LDFLAGS=$(LIB_DIRS) $(DEP_LIBS) -lgtest -lgtest_main -lgmock
+MKDIR=mkdir
+
+.PHONY: clean all
+
+SUFFIXES += .d
+
+
+NODEPS:=clean
+SOURCES:=$(shell find src/main -name "*.cpp")
+DEPFILES:=$(patsubst %.cpp,%.d,$(SOURCES))
+OBJFILES:=$(patsubst src/%.cpp,obj/%.o,$(SOURCES))
+
+TEST_SOURCES:=$(shell find src/test -name "*.cpp")
+TEST_DEPFILES:=$(patsubst %.cpp,%.d,$(TEST_SOURCES)) 
+TEST_OBJFILES:=$(patsubst src/%.cpp,obj/%.o,$(TEST_SOURCES))
+
+all: coypu coyputest
+
+#Don't create dependencies when we're cleaning, for instance
+ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
+-include $(DEPFILES)
+-include $(TEST_DEPFILES) 
+endif
+
+#This is the rule for creating the dependency files
+src/%.d: src/%.cpp
+	$(CC) $(CFLAGS) -MM -MT '$(patsubst src/%.cpp,obj/%.o,$<)' $< -MF $@
+
+#This rule does the compilation
+obj/%.o: src/%.cpp src/%.d
+	@$(MKDIR) -p $(dir $@)
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+coypu: $(DEPFILES) $(OBJFILES)
+	$(CC) -m64 $(OBJFILES) $(LDFLAGS) -o coypu
+
+coyputest: $(TEST_OBJFILES) $(TEST_SOURCES) $(DEPFILES) $(OBJFILES)
+	$(CC) -m64 $(TEST_OBJFILES) $(filter-out obj/main/main.o, $(OBJFILES)) $(TEST_LDFLAGS) -o coyputest
+
+check: 
+	cppcheck $(INCLUDES) --check-config --suppress=missingIncludeSystem --enable=all $(SOURCES) $(TEST_SOURCES) 
+
+test: check coyputest
+	@./coyputest --log_level=test_suite
+#@valgrind --xml=yes --xml-file=valgrind.xml ./coyputest --log_level=test_suite
+#@python val-convert.py
+
+htest: src/main/test.hs
+	ghc -outputdir build --make src/main/test.hs
+
+clean:
+	rm -rf $(OBJFILES)
+	rm -rf $(DEPFILES)
+	rm -rf $(TEST_OBJFILES)
+	rm -rf $(TEST_DEPFILES)
+	rm -rf coypu
+	rm -rf coyputest

@@ -1,0 +1,86 @@
+cmake_minimum_required (VERSION 3.8)
+project(coypu)
+include (CTest)
+include (GoogleTest)
+
+list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
+
+set(CMAKE_FIND_LIBRARY_PREFIXES lib ${CMAKE_FIND_LIBRARY_PREFIXES})
+set(CMAKE_FIND_LIBRARY_SUFFIXES .a .so ${CMAKE_FIND_LIBRARY_SUFFIXES})
+
+include(GetGitRevisionDescription)
+get_git_head_revision(GIT_REFSPEC GIT_SHA1)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(coypu_VERSION_MAJOR 0)
+set(coypu_VERSION_MINOR 2)
+
+set(CMAKE_CXX_COMPILER "clang++")
+set(CMAKE_C_COMPILER "clang") 
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+enable_testing()
+
+SET(CMAKE_CXX_FLAGS         "-nodefaultlibs -stdlib=libc++ -Wall -Wpedantic -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE")
+SET(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG=1 -DSPDLOG_DEBUG_ON=0 -DSPDLOG_TRACE_ON=0")
+SET(CMAKE_CXX_FLAGS_DEBUG   "-O0 -fno-omit-frame-pointer -g -DSPDLOG_DEBUG_ON=1 -DSPDLOG_TRACE_ON=1")
+#SET(CMAKE_EXE_LINKER_FLAGS "-stdlib=libc++")
+
+add_definitions("-D_GIT_REV=\"${GIT_SHA1}\"")
+add_definitions("-DCOYPU_VERSION=\"${coypu_VERSION_MAJOR}.${coypu_VERSION_MINOR}\"")
+
+file(GLOB_RECURSE COYPU_SRC ${PROJECT_SOURCE_DIR}/src/main/*.cpp)
+list(FILTER COYPU_SRC EXCLUDE REGEX ".*main.cpp$")
+file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
+
+
+include_directories(${PROJECT_SOURCE_DIR}/src/main)
+
+set(BPF_SRC ${PROJECT_SOURCE_DIR}/src/bpf/bpf_load.c ${PROJECT_SOURCE_DIR}/src/bpf/libbpf.c ${PROJECT_SOURCE_DIR}/src/bpf/nutria_bpf.c)
+include_directories(${PROJECT_SOURCE_DIR}/src/bpf/)
+
+set(CMAKE_INSTALL_RPATH "/usr/local/lib")
+
+add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
+target_link_libraries(coypu yaml)
+target_link_libraries(coypu pthread)
+target_link_libraries(coypu crypto)
+target_link_libraries(coypu ssl)
+target_link_libraries(coypu numa)
+target_link_libraries(coypu bpf)
+target_link_libraries(coypu unwind)
+target_link_libraries(coypu c++)
+target_link_libraries(coypu c++abi)
+target_link_libraries(coypu m)
+target_link_libraries(coypu c)
+target_link_libraries(coypu gcc_s)
+target_link_libraries(coypu gcc)
+
+add_executable(nutra_bpf_load ${BPF_SRC})
+target_link_libraries(nutra_bpf_load elf)
+
+add_executable(coyputest ${COYPU_TEST_SRC} ${COYPU_SRC})
+target_link_libraries(coyputest yaml)
+target_link_libraries(coyputest glog)
+target_link_libraries(coyputest gflags)
+target_link_libraries(coyputest gtest)
+target_link_libraries(coyputest gmock)
+target_link_libraries(coyputest pthread)
+target_link_libraries(coyputest unwind)
+target_link_libraries(coyputest crypto)
+target_link_libraries(coyputest ssl)
+target_link_libraries(coyputest numa)
+target_link_libraries(coyputest bpf)
+target_link_libraries(coyputest c++)
+target_link_libraries(coyputest c++abi)
+target_link_libraries(coyputest m)
+target_link_libraries(coyputest c)
+target_link_libraries(coyputest gcc_s)
+target_link_libraries(coyputest gcc)
+
+gtest_discover_tests(coyputest)
+
+
+add_subdirectory("${PROJECT_SOURCE_DIR}/src/kern")
