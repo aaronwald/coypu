@@ -16,13 +16,13 @@ namespace coypu {
 
     // Simpler to make this a rolling buffer 
     template <typename MMapProvider>
-    class PStoreScrollWriteBuf {
+    class LogWriteBuf {
       public:
-        PStoreScrollWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly) :
+        LogWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly) :
           _pageSize(pageSize), _offset(offset), _fd(fd), _readOnly(readOnly), _dataPage(nullptr, 0)  { 
         }
 
-        virtual ~PStoreScrollWriteBuf () {
+        virtual ~LogWriteBuf () {
           if (_dataPage.first) {
             MMapProvider::MUnmap(_dataPage.first, _pageSize);
           }
@@ -68,8 +68,8 @@ namespace coypu {
         }
 
       private:
-        PStoreScrollWriteBuf (const PStoreScrollWriteBuf &other);
-        PStoreScrollWriteBuf &operator= (const PStoreScrollWriteBuf &other);
+        LogWriteBuf (const LogWriteBuf &other);
+        LogWriteBuf &operator= (const LogWriteBuf &other);
 
         int AllocatePage () {
           if (MMapProvider::Truncate(_fd, _offset+_pageSize)) {
@@ -101,17 +101,17 @@ namespace coypu {
         std::pair<char *, off64_t> _dataPage;
     };
 
-    // class PStoreReadPageBuf
+    // class LogReadPageBuf
     // map / remap
     template <typename MMapProvider>
-    class PStoreReadPageBuf {
+    class LogReadPageBuf {
       public:
-        PStoreReadPageBuf (off64_t pageSize) : 
+        LogReadPageBuf (off64_t pageSize) : 
           _pageSize(pageSize),
           _dataPage(nullptr, UINT64_MAX) {
         }
 
-        virtual ~PStoreReadPageBuf () {
+        virtual ~LogReadPageBuf () {
           MMapProvider::MUnmap(_dataPage.first, _pageSize);
         }
 
@@ -187,8 +187,8 @@ namespace coypu {
         }
 
       private:
-        PStoreReadPageBuf (const PStoreReadPageBuf &other);
-        PStoreReadPageBuf &operator= (const PStoreReadPageBuf &other);
+        LogReadPageBuf (const LogReadPageBuf &other);
+        LogReadPageBuf &operator= (const LogReadPageBuf &other);
 
         off64_t _pageSize;
         std::pair<char *, off64_t> _dataPage;
@@ -198,7 +198,7 @@ namespace coypu {
     class LRUCache {
       public:
 
-        typedef PStoreReadPageBuf <MMapProvider> store_type;
+        typedef LogReadPageBuf <MMapProvider> store_type;
         typedef std::shared_ptr<store_type> page_type; 
         typedef std::pair<uint32_t, page_type> pair_type;
         typedef std::shared_ptr<pair_type> read_cache_type;
@@ -265,12 +265,12 @@ namespace coypu {
     };
 
     template <typename MMapProvider, template <typename, int> class ReadCache, int CacheSize>
-    class PStoreRWStream {
+    class LogRWStream {
       public:
         typedef uint32_t page_offset_type;
         typedef uint64_t offset_type;
 
-        PStoreRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
+        LogRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
           _writeBuf(pageSize, offset, fd, false),
           _readCache(pageSize, CacheSize, fd),
           _pageSize(pageSize),
@@ -279,7 +279,7 @@ namespace coypu {
           _maxSize(maxSize) {
         }
 
-        virtual ~PStoreRWStream () {
+        virtual ~LogRWStream () {
         } 
 
         offset_type Available () const {
@@ -396,10 +396,10 @@ namespace coypu {
         }
 
       private:
-        PStoreRWStream (const PStoreRWStream &other);
-        PStoreRWStream &operator= (const PStoreRWStream &other);
+        LogRWStream (const LogRWStream &other);
+        LogRWStream &operator= (const LogRWStream &other);
 
-        PStoreScrollWriteBuf <MMapProvider> _writeBuf;
+        LogWriteBuf <MMapProvider> _writeBuf;
 
         typedef ReadCache<MMapProvider, CacheSize>  read_cache_type;
         read_cache_type _readCache;
@@ -480,12 +480,12 @@ namespace coypu {
     };
 
     template <typename S>
-    class MultiPositionedStream {
+    class MultiPositionedStreamLog {
       public:
-        MultiPositionedStream (const std::shared_ptr<S> &stream) : _stream(stream) {
+        MultiPositionedStreamLog (const std::shared_ptr<S> &stream) : _stream(stream) {
         }
 
-        virtual ~MultiPositionedStream () {
+        virtual ~MultiPositionedStreamLog () {
         }
 
         int Push (const char *data, typename S::offset_type len) {
@@ -544,17 +544,14 @@ namespace coypu {
         }
 
       private:
-        MultiPositionedStream (const MultiPositionedStream &other);
-        MultiPositionedStream &operator=(const MultiPositionedStream &other);
+        MultiPositionedStreamLog (const MultiPositionedStreamLog &other);
+        MultiPositionedStreamLog &operator=(const MultiPositionedStreamLog &other);
 
         std::shared_ptr<S> _stream;
         std::vector<typename S::offset_type> _curOffsets;
     };
 
-        // static_assert(sizeof(PageHeaderS) == 8, "Page Header Size Check");
-        // struct PageHeaderS {
-        //     uint64_t _used;    // 0
-        // } __attribute__ ((packed, aligned(8)));
+
   }
 }
 

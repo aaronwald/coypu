@@ -14,7 +14,7 @@ TEST(StoreTest, Test1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreScrollWriteBuf<FileUtil> store(MemManager::GetPageSize(),  0, fd, false);
+	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(),  0, fd, false);
 
 	EXPECT_EQ(store.Push("foo", 3), 0) << buf;
 
@@ -28,7 +28,7 @@ TEST(StoreTest, Test2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreScrollWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
 
 	for (int x = 0; x < 10000; ++x) {
 		ASSERT_EQ(store.Push("foo", 3), 0) << "Push [" << x << "] [" << buf << "]";
@@ -45,7 +45,7 @@ TEST(StoreTest, TestReadv1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreScrollWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
 
     std::function<int(int, const struct iovec *,int)> rcb = [] (int fd, const struct iovec *io, int count) {
         return ::readv(fd, io, count);
@@ -72,7 +72,7 @@ TEST(StoreTest, TestReadv2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreScrollWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
 
     std::function<int(int, const struct iovec *,int)> rcb = [] (int fd, const struct iovec *io, int count) {
         return ::readv(fd, io, count);
@@ -102,7 +102,7 @@ TEST(StoreTest, TestRW1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
 	EXPECT_EQ(rwBuf.Push("abcdef", 6), 0) << buf;
 	EXPECT_EQ(rwBuf.Available(), 6);
 	EXPECT_EQ(rwBuf.IsEmpty(), false);
@@ -140,7 +140,7 @@ TEST(StoreTest, TestRW2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
 	int count = 1200;
 	for (int i = 0; i < count; ++i) {
 		char dest[6] = {};
@@ -171,7 +171,7 @@ TEST(StoreTest, TestRW3)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	PStoreRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
 	int count = 1200;
 	char outstr[128];
 	char dest[128];
@@ -206,7 +206,7 @@ TEST(StoreTest, TestRWv1)
         return ::writev(fd, io, count);
     };
 
-	PStoreRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
 	int count = 1200;
 	char outstr[128];
 	char dest[128];

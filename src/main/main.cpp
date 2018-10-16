@@ -44,11 +44,11 @@ using namespace coypu::store;
 // Coypu Types
 typedef std::shared_ptr<SPDLogger> LogType;
 typedef coypu::event::EventManager<LogType> EventManagerType;
-typedef coypu::store::PStoreRWStream<FileUtil, coypu::store::LRUCache, 128> RWBufType;
+typedef coypu::store::LogRWStream<FileUtil, coypu::store::LRUCache, 128> RWBufType;
 typedef coypu::store::PositionedStream <RWBufType> StreamType;
-typedef coypu::store::MultiPositionedStream <RWBufType> PublishStreamType;
+typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
-typedef PStoreScrollWriteBuf<FileUtil> StoreType;
+typedef LogWriteBuf<FileUtil> StoreType;
 
 void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	CPUManager::SetName("epoll");
@@ -308,12 +308,6 @@ int main(int argc, char **argv)
 					assert(false);
 				}
 
-				auto wsManager = wWsManager.lock();
-				if (wsManager) {
-					// TODO TODO change, instead of direct queue, wsManager here should read from the stream and publish
-					// need a stream buffer instead of the writeBuf to check
-					// wsManager->Queue(clientfd, coypu::http::websocket::WS_OP_TEXT_FRAME, "Foo", 3);
-				}
 				auto eventMgr = wEventMgr.lock();
 				auto publish = wPublishStreamSP.lock();
 				if (publish && eventMgr) {
@@ -400,7 +394,6 @@ int main(int argc, char **argv)
 			}
 
 			auto wsManager = wWsManager.lock();
-
 			auto publish = wPublishStreamSP.lock();
 			if (publish && wsManager) {
 				// Create a websocket message and persist
