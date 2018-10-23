@@ -269,6 +269,9 @@ namespace coypu {
       public:
         typedef uint32_t page_offset_type;
         typedef uint64_t offset_type;
+        typedef char value_type;
+
+        typedef LogRWStream<MMapProvider, ReadCache, CacheSize> log_type;
 
         LogRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
           _writeBuf(pageSize, offset, fd, false),
@@ -281,6 +284,68 @@ namespace coypu {
 
         virtual ~LogRWStream () {
         } 
+
+        // https://gist.github.com/jeetsukumaran/307264
+        // https://stackoverflow.com/questions/12092448/code-for-a-basic-random-access-iterator-based-on-pointers
+        template <typename LogType>
+        class store_iterator : public std::iterator<std::random_access_iterator_tag, char> {
+          public:
+              typedef store_iterator<LogType> iterator_type;
+              typedef typename LogType::value_type value_type;
+              typedef typename LogType::value_type& reference;
+              typedef typename LogType::value_type* pointer;
+              // typedef int difference_type;
+
+              using difference_type = typename std::iterator<std::random_access_iterator_tag, char>::difference_type;
+
+              store_iterator(LogType *log, offset_type offset) : _log(log), _offset(offset) { 
+
+              }
+
+              reference operator*() { 
+                _log->Peak(_offset, _value);
+                return _value; 
+              }
+
+              pointer operator->() { 
+                _log->Peak(_offset, _value);
+                return &_value; 
+              }
+
+              inline iterator_type& operator++() {++_offset; return *this;}
+              inline iterator_type& operator--() {--_offset; return *this;}
+              inline iterator_type operator++(int) const {iterator_type tmp(_log, *this); ++_offset; return tmp;}
+              inline iterator_type operator--(int) const {iterator_type tmp(_log, *this); --_offset; return tmp;}
+              /* inline Iterator operator+(const Iterator& rhs) {return Iterator(_ptr+rhs.ptr);} */
+              inline difference_type operator-(const iterator_type& rhs) const {return _offset-rhs._offset;}
+              inline iterator_type operator+(difference_type rhs) const {return iterator_type(_log, _offset+rhs);}
+              inline iterator_type operator-(difference_type rhs) const {return iterator_type(_log, _offset-rhs);}
+              friend inline iterator_type operator+(difference_type lhs, const iterator_type& rhs) {return iterator_type(rhs._log, lhs+rhs._offset);}
+              friend inline iterator_type operator-(difference_type lhs, const iterator_type& rhs) {return iterator_type(rhs._log, lhs-rhs._offset);}
+
+
+              inline bool operator==(const iterator_type& rhs) const {return _offset == rhs._offset;}
+              inline bool operator!=(const iterator_type& rhs) const {return _offset != rhs._offset;}
+              inline bool operator>(const iterator_type& rhs) const {return _offset > rhs._offset;}
+              inline bool operator<(const iterator_type& rhs) const {return _offset < rhs._offset;}
+              inline bool operator>=(const iterator_type& rhs) const {return _offset >= rhs._offset;}
+              inline bool operator<=(const iterator_type& rhs) const {return _offset <= rhs._offset;}
+          private:
+              LogType *_log;
+              offset_type _offset;
+
+              char _value;
+        };
+
+        typedef store_iterator<log_type> iterator;
+
+        iterator begin(offset_type offset) {
+          return store_iterator<log_type>(this, offset);
+        }
+
+        iterator end(offset_type end) {
+          return store_iterator<log_type>(this, end);
+        }
 
         offset_type Available () const {
           return _available;
@@ -541,6 +606,14 @@ namespace coypu {
 
         inline typename S::offset_type Free() const {
           return _stream->Free();
+        }
+
+        typename S::iterator begin(typename S::offset_type offset) {
+          return _stream->begin(offset);
+        }
+
+        typename S::iterator end(typename S::offset_type end) {
+          return _stream->end(end);
         }
 
       private:

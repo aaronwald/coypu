@@ -13,6 +13,11 @@
 
 #include <openssl/rand.h>
 
+#include <iomanip>
+#include <sstream>
+#include <nlohmann/json.hpp>
+
+
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h" // support for basic file logging
 
@@ -30,6 +35,8 @@
 #include "file/file.h"
 #include "store/store.h"
 #include "buf/buf.h"
+
+using json = nlohmann::json;
 
 using namespace coypu;
 using namespace coypu::backtrace;
@@ -59,6 +66,84 @@ void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 		}
 	}
 }
+
+class sax_event_consumer : public json::json_sax_t
+{
+public:
+	std::vector<std::string> events;
+
+	bool null() override
+	{
+		events.push_back("value: null");
+		return true;
+	}
+
+	bool boolean(bool val) override
+	{
+		events.push_back("value: " + std::string(val ? "true" : "false"));
+		return true;
+	}
+
+	bool number_integer(number_integer_t val) override
+	{
+		events.push_back("value: " + std::to_string(val));
+		return true;
+	}
+
+	bool number_unsigned(number_unsigned_t val) override
+	{
+		events.push_back("value: " + std::to_string(val));
+		return true;
+	}
+
+	bool number_float(number_float_t val, const string_t& s) override
+	{
+		events.push_back("value: " + s);
+		return true;
+	}
+
+	bool string(string_t& val) override
+	{
+		events.push_back("value: " + val);
+		return true;
+	}
+
+	bool start_object(std::size_t elements) override
+	{
+		events.push_back("start: object");
+		return true;
+	}
+
+	bool end_object() override
+	{
+		events.push_back("end: object");
+		return true;
+	}
+
+	bool start_array(std::size_t elements) override
+	{
+		events.push_back("start: array");
+		return true;
+	}
+
+	bool end_array() override
+	{
+		events.push_back("end: array");
+		return true;
+	}
+
+	bool key(string_t& val) override
+	{
+		events.push_back("key: " + val);
+		return true;
+	}
+
+	bool parse_error(std::size_t position, const std::string& last_token, const json::exception& ex) override
+	{
+		events.push_back("error: " + std::string(ex.what()));
+		return false;
+	}
+};
 
 int main(int argc, char **argv)
 {
@@ -393,10 +478,21 @@ int main(int argc, char **argv)
 				console->info("onText {0} {1} SeqNum[{2}]  ", len, offset, seqNum);
 			}
 
+		
+			
+
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
 			if (publish && wsManager) {
 				// Create a websocket message and persist
+				sax_event_consumer sec;
+				// this will fail because the memory might not be continugous given we use mmap
+				bool result = json::sax_parse(publish->begin(offset), publish->end(offset+len), &sec);
+				for (auto& event : sec.events) {
+					std::cout << "(" << event << ") ";
+				}	
+				std::cout << "\nresult: " << std::boolalpha << result << std::endl;
+
 				char pub[1024];
 				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
 				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
@@ -455,3 +551,5 @@ int main(int argc, char **argv)
 
 	return 0;
 }
+
+

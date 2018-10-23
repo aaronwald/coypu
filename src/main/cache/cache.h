@@ -51,14 +51,23 @@ namespace coypu {
                 // cacheid -> (seqno) (1 cache line) or cache_id -> (offset, len) (2 cache lines)
                 // effectively key->value
 
+                // https://github.com/nlohmann/json.git  ( v3.3.0 )
+
+                // need boost
+                // https://github.com/apache/arrow.git ( apache-arrow-0.11.1 )
+                // https://github.com/apache/parquet-cpp.git ( apache-parquet-cpp-1.5.0 )
+
+                // TODO 0. Parse json (nlohmann). For doc we receive. write a simpler record , security / value
+                // TODO 1. Restore Page Function - Need read record function
+                // TODO 2. Sort Page
+                // TODO 3. Merge Page Function to disk
+                // TODO 4. Compress page
+                // TODO 5. Search on disk
+
                 // page compress thread - read and write out new page on disk that is sorted (LSM)
                 // sort and compress pages to get latest per page
                 // group pages for more
                 // bloom filter for lots of keys to find pages
-
-                // How would tags be stored? 
-                // <Tag>=<Value> 
-                // tag can be translated to id
 
                 // latest in memory - cap
                 // if not found then search through 
