@@ -236,7 +236,14 @@ TEST(StoreTest, TestRWv1)
 
 		ASSERT_EQ(strncmp(outstr, dest, to_write), 0) << "Iteration:" << outstr << ":" << dest;
 	}
-	
+
+	auto b = rwBuf.begin(0);
+	auto e = rwBuf.end(100);
+	int i = 0;
+	for (;b != e; ++b) {
+		++i;
+	}
+	ASSERT_EQ(i, 100); // 0..99 inclusive
 
 	ASSERT_NO_THROW(FileUtil::Close(fd));
 	ASSERT_NO_THROW(FileUtil::Remove(buf));

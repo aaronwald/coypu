@@ -487,6 +487,8 @@ int main(int argc, char **argv)
 				// Create a websocket message and persist
 				sax_event_consumer sec;
 				// this will fail because the memory might not be continugous given we use mmap
+				// this check fails because we return the same pointer over and over.
+				// none the less things are not guaranteed to be continuous in mmap across pages.
 				bool result = json::sax_parse(publish->begin(offset), publish->end(offset+len), &sec);
 				for (auto& event : sec.events) {
 					std::cout << "(" << event << ") ";
