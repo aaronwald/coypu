@@ -70,6 +70,7 @@ void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 
 struct CoinCache {
 	uint64_t _seqno;
+	uint64_t _origseqno;
 	char _product[64];
 
 	uint32_t _seconds;
@@ -81,7 +82,6 @@ struct CoinCache {
 	double _open;
 	double _last;
 
-	char _pad[8];
 } __attribute__ ((packed, aligned(64)));
 
 template <typename StreamType, typename BufType>
@@ -480,7 +480,8 @@ int main(int argc, char **argv)
 					if(stream->Pop(jsonDoc, offset, len)) {
 						jsonDoc[len] = 0;
 						json result = json::parse(jsonDoc);
-						if (result["type"] == "l2update") {
+						std::string &type = result["type"].get_ref<std::string &>();
+						if (type == "l2update") {
 							std::string product = result["product_id"];
 
 							std::vector<json> changes = result["changes"];
@@ -491,25 +492,25 @@ int main(int argc, char **argv)
 								std::string px = (*b)[1].get<std::string>();
 								std::string qty = (*b)[2].get<std::string>();
 							}
-						} else if (result["type"] == "error") {
+						} else if (type == "error") {
 							std::stringstream s;
 							s << result;
 							console->error("{0}", s.str());
-						} else if (result["type"] == "ticker") {
+						} else if (type == "ticker") {
 							// "best_ask":"6423.6",
 							// "best_bid":"6423.59",
-							// "high_24h":"6471.00000000",
+							// x"high_24h":"6471.00000000",
 							// "last_size":"0.00147931",
-							// "low_24h":"6384.04000000",
+							// x"low_24h":"6384.04000000",
 							// "open_24h":"6388.00000000",
 							// "price":"6423.60000000",
-							// "product_id":"BTC-USD",
-							// "sequence":7230193662,
+							// x"product_id":"BTC-USD",
+							// x"sequence":7230193662,
 							// "side":"buy",
-							// "time":"2018-10-24T16:48:56.559000Z",
+							// x"time":"2018-10-24T16:48:56.559000Z",
 							// "trade_id":52862394,
 							// "type":"ticker",
-							// "volume_24h":"5365.44495907",
+							// x"volume_24h":"5365.44495907",
 							// "volume_30d":"195043.05076131"
 
 							// product_id, time, high_low,volume,open,price
@@ -517,14 +518,15 @@ int main(int argc, char **argv)
 							// the last-value cache should be from ticker
 							std::stringstream s;
 							s << result;
-							// console->info("{0}", s.str());
 
 							CoinCache cc = {};
 							static uint64_t seqno = 0;
 							cc._seqno = seqno++;
-							std::string &product = result["product_id"].get_ref<std::string &>();
-							memcpy(cc._product, product.c_str(), std::max(63UL, product.length()));
-							// "time":"2018-10-24T15:11:25.740000Z"
+							if (!result["product_id"].is_null()) {
+								std::string &product = result["product_id"].get_ref<std::string &>();
+								memcpy(cc._product, product.c_str(), std::max(63UL, product.length()));
+							}
+
 							if (!result["time"].is_null()) {
 								std::string &timeStr = result["time"].get_ref<std::string &>();
 
@@ -540,18 +542,32 @@ int main(int argc, char **argv)
 									}
 								}
 							}
-							cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
-							cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
-							cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
+
+							if (!result["high_24h"].is_null()) {
+								cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["low_24h"].is_null()) {
+								cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["volume_24h"].is_null()) {
+								cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["sequence"].is_null()) {
+								cc._origseqno = result["sequence"].get<uint64_t>();
+							}
 
 							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
 							cache->Push(reinterpret_cast<char *>(&cc), sizeof(CoinCache));
-						} else if (result["type"] == "heartbeat") {
+						} else if (type == "subscriptions") {
+						} else if (type == "heartbeat") {
 							// skip
 						} else {
 							std::stringstream s;
 							s << result;
-							console->warn("{0} {1}", result["type"].get<std::string>(), s.str()); // spdlog doesnt do streams
+							console->warn("{0} {1}", type, s.str()); // spdlog doesnt do streams
 						}
 					} else {
 						assert(false);
@@ -566,9 +582,6 @@ int main(int argc, char **argv)
 				wsManager->SetWriteAll();
 			}
 		};
-	
-		
-
 		
 		// stream is associated with the fd. socket can only support one websocket connection at a time.
 		wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, streamSP, nullptr);	
