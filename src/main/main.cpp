@@ -470,40 +470,6 @@ int main(int argc, char **argv)
 			return 0;
 		};
 
-		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wWsManager] (uint64_t offset, off64_t len) {
-			static uint64_t seqNum = 0;
-			++seqNum;
-			if (!(seqNum % 1000)) {
-				console->info("onText {0} {1} SeqNum[{2}]  ", len, offset, seqNum);
-			}
-
-		
-			
-
-			auto wsManager = wWsManager.lock();
-			auto publish = wPublishStreamSP.lock();
-			if (publish && wsManager) {
-				// Create a websocket message and persist
-				sax_event_consumer sec;
-				// this will fail because the memory might not be continugous given we use mmap
-				// this check fails because we return the same pointer over and over.
-				// none the less things are not guaranteed to be continuous in mmap across pages.
-				bool result = json::sax_parse(publish->begin(offset), publish->end(offset+len), &sec);
-				for (auto& event : sec.events) {
-					std::cout << "(" << event << ") ";
-				}	
-				std::cout << "\nresult: " << std::boolalpha << result << std::endl;
-
-				char pub[1024];
-				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
-				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-				publish->Push(pub, len);
-				wsManager->SetWriteAll();
-			}
-		};
-
-	
 		std::string storeFile("gdax.store");
 		std::shared_ptr<StreamType> streamSP = nullptr; 
 
@@ -524,6 +490,50 @@ int main(int argc, char **argv)
 				a->perror(errno, "Open");
 			}
 		}
+		std::weak_ptr<StreamType> wStreamSP = streamSP; 
+
+		// not weak
+		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP] (uint64_t offset, off64_t len) {
+			static uint64_t seqNum = 0;
+			++seqNum;
+			if (!(seqNum % 1000)) {
+				console->info("onText {0} {1} SeqNum[{2}]  ", len, offset, seqNum);
+			}
+
+			auto wsManager = wWsManager.lock();
+			auto publish = wPublishStreamSP.lock();
+			auto stream = wStreamSP.lock();
+			if (publish && wsManager && stream) {
+				char jsonDoc[1024] = {};
+				if (len < 1024) {
+					if(stream->Pop(jsonDoc, offset, len)) { // sad copy (see below)
+						jsonDoc[len] = 0;
+						// Create a websocket message and persist
+						sax_event_consumer sec;
+						// this will fail because the memory might not be continugous given we use mmap
+						// this check fails because we return the same pointer over and over.
+						// none the less things are not guaranteed to be continuous in mmap across pages.
+						bool result = json::sax_parse(jsonDoc, &sec);
+						// bool result = json::sax_parse(publish->begin(offset), publish->end(offset+len), &sec);
+						for (auto& event : sec.events) {
+							std::cout << "(" << event << ") ";
+						}	
+						std::cout << "\nresult: " << std::boolalpha << result << std::endl;
+					} else {
+						assert(false);
+					}
+				}
+			
+
+				char pub[1024];
+				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
+				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+				publish->Push(pub, len);
+				wsManager->SetWriteAll();
+			}
+		};
+	
+		
 
 		
 		// stream is associated with the fd. socket can only support one websocket connection at a time.

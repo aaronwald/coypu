@@ -506,6 +506,13 @@ namespace coypu {
           return false;
         }
 
+        bool Pop (char *dest, typename S::offset_type offset, uint64_t size) {
+          if (_stream->Pop(offset, dest, size)) {
+            return true;
+          }
+          return false;
+        }
+
         int Readv (int fd, std::function <int(int, const struct iovec *, int)> &cb) {
           return _stream->Readv(fd, cb);
         }
@@ -594,6 +601,16 @@ namespace coypu {
           if (_curOffsets[fd] == UINT64_MAX) return 0; //unregistered
 
           return _stream->Available() - _curOffsets[fd];
+        }
+
+        // copy
+        bool Pop (char *dest, typename S::offset_type  offset, typename S::offset_type size) {
+          if (_stream->Available() < offset) return false;
+          if (_stream->Available()+size < offset) return false;
+          if (_stream->Pop(offset, dest, size)) {
+            return true;
+          }
+          return false;
         }
 
         bool IsEmpty (int fd) const {
