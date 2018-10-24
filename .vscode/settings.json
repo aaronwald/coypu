@@ -68,7 +68,8 @@
         "bitset": "cpp",
         "map": "cpp",
         "set": "cpp",
-        "locale": "cpp"
+        "locale": "cpp",
+        "__functional_base": "cpp"
     },
     "python.pythonPath": "${workspaceFolder}/test/test/bin/python3.6"
 }

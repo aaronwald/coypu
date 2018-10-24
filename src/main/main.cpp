@@ -4,6 +4,7 @@
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <sys/uio.h>
+#include <time.h>
 
 #include <memory>
 #include <vector>
@@ -67,86 +68,47 @@ void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	}
 }
 
-class sax_event_consumer : public json::json_sax_t
-{
-public:
-	std::vector<std::string> events;
+struct CoinCache {
+	uint64_t _seqno;
+	char _product[64];
 
-	bool null() override
-	{
-		events.push_back("value: null");
-		return true;
-	}
+	uint32_t _seconds;
+	uint32_t _milliseconds;
 
-	bool boolean(bool val) override
-	{
-		events.push_back("value: " + std::string(val ? "true" : "false"));
-		return true;
-	}
+	double _high24;
+	double _low24;
+	double _vol24;
+	double _open;
+	double _last;
 
-	bool number_integer(number_integer_t val) override
-	{
-		events.push_back("value: " + std::to_string(val));
-		return true;
-	}
+	char _pad[8];
+} __attribute__ ((packed, aligned(64)));
 
-	bool number_unsigned(number_unsigned_t val) override
-	{
-		events.push_back("value: " + std::to_string(val));
-		return true;
-	}
+template <typename StreamType, typename BufType>
+std::shared_ptr <StreamType> CreateStore (const std::string &name) {
+	std::shared_ptr<StreamType> streamSP = nullptr; 
+	std::string storeFile(name + ".store");
+	bool b = false;
+	FileUtil::Exists(storeFile.c_str(), b);
+	// open in direct mode
+	int fd = FileUtil::Open(storeFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+	if (fd >= 0) {
+		size_t pageSize = MemManager::GetPageSize();
+		off64_t curSize = 0;
+		FileUtil::GetSize(fd, curSize);
 
-	bool number_float(number_float_t val, const string_t& s) override
-	{
-		events.push_back("value: " + s);
-		return true;
+		std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd);
+		streamSP = std::make_shared<StreamType>(bufSP);
+	} else {
+		return nullptr;
 	}
-
-	bool string(string_t& val) override
-	{
-		events.push_back("value: " + val);
-		return true;
-	}
-
-	bool start_object(std::size_t elements) override
-	{
-		events.push_back("start: object");
-		return true;
-	}
-
-	bool end_object() override
-	{
-		events.push_back("end: object");
-		return true;
-	}
-
-	bool start_array(std::size_t elements) override
-	{
-		events.push_back("start: array");
-		return true;
-	}
-
-	bool end_array() override
-	{
-		events.push_back("end: array");
-		return true;
-	}
-
-	bool key(string_t& val) override
-	{
-		events.push_back("key: " + val);
-		return true;
-	}
-
-	bool parse_error(std::size_t position, const std::string& last_token, const json::exception& ex) override
-	{
-		events.push_back("error: " + std::string(ex.what()));
-		return false;
-	}
-};
+	return streamSP;
+}
 
 int main(int argc, char **argv)
 {
+	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
+
 	if (argc != 2)
 	{
 		fprintf(stderr, "Usage: %s <yaml_config>\n", argv[0]);
@@ -327,26 +289,13 @@ int main(int argc, char **argv)
 	};
 
 	// BEGIN Websocket Server Test
-	std::shared_ptr<PublishStreamType> publishStreamSP = nullptr; 
-	std::string publishFile("publish.store");
-	if (!publishFile.empty()) {
-		bool b = false;
-		FileUtil::Exists(publishFile.c_str(), b);
-		// open in direct mode
-		int fd = FileUtil::Open(publishFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-		if (fd >= 0) {
-			size_t pageSize = MemManager::GetPageSize();
-			off64_t curSize = 0;
-			FileUtil::GetSize(fd, curSize);
-			a->info("Current size {0}", curSize);
-
-			std::shared_ptr<RWBufType> publishBufSP = std::make_shared<RWBufType>(pageSize, curSize, fd);
-			publishStreamSP = std::make_shared<PublishStreamType>(publishBufSP);
-		} else {
-			a->perror(errno, "Open");
-		}
-	}
+	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>("publish"); 
+	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
+
+	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>("cache"); 
+	assert(publishStreamSP != nullptr);
+	std::weak_ptr<PublishStreamType> wCacheStreamSP = cacheStreamSP; 
 
 	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
 		struct sockaddr_in client_addr= {0};
@@ -448,15 +397,34 @@ int main(int argc, char **argv)
 		std::function <void(int)> onOpen = [wWsManager] (int fd) {
 			auto wsManager = wWsManager.lock();
 			if (wsManager) {
-				// eth to usd ticker
-				std::string subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"ticker\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				bool queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::vector<std::string> pairs;
+				pairs.push_back("BTC-USD");
+				pairs.push_back("ETH-USD");
+				pairs.push_back("ETH-EUR");
+				pairs.push_back("ETH-BTC");
+				pairs.push_back("ZRX-USD");
+				pairs.push_back("EOS-USD");
 
-				subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"heartbeat\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::vector<std::string> channels;
+				channels.push_back("ticker");
+				channels.push_back("heartbeat");
+				channels.push_back("level2");
 
-				subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"level2\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::string subStr;
+				bool queue;
+
+				for (std::string channel : channels) {
+					for (std::string pair : pairs) {
+						subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
+						queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+					}
+				}
+
+				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"heartbeat\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
+				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+
+				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"level2\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
+				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 			}
 		};
 
@@ -493,7 +461,7 @@ int main(int argc, char **argv)
 		std::weak_ptr<StreamType> wStreamSP = streamSP; 
 
 		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP] (uint64_t offset, off64_t len) {
+		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCacheStreamSP] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
 			if (!(seqNum % 1000)) {
@@ -502,23 +470,89 @@ int main(int argc, char **argv)
 
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
+			auto cache = wCacheStreamSP.lock();
 			auto stream = wStreamSP.lock();
-			if (publish && wsManager && stream) {
+			
+			if (publish && wsManager && stream && cache) {
 				char jsonDoc[1024] = {};
 				if (len < 1024) {
-					if(stream->Pop(jsonDoc, offset, len)) { // sad copy (see below)
+					// sad copying but nice json library
+					if(stream->Pop(jsonDoc, offset, len)) {
 						jsonDoc[len] = 0;
-						// Create a websocket message and persist
-						sax_event_consumer sec;
-						// this will fail because the memory might not be continugous given we use mmap
-						// this check fails because we return the same pointer over and over.
-						// none the less things are not guaranteed to be continuous in mmap across pages.
-						bool result = json::sax_parse(jsonDoc, &sec);
-						// bool result = json::sax_parse(publish->begin(offset), publish->end(offset+len), &sec);
-						for (auto& event : sec.events) {
-							std::cout << "(" << event << ") ";
-						}	
-						std::cout << "\nresult: " << std::boolalpha << result << std::endl;
+						json result = json::parse(jsonDoc);
+						if (result["type"] == "l2update") {
+							std::string product = result["product_id"];
+
+							std::vector<json> changes = result["changes"];
+							auto b = changes.begin();
+							auto e = changes.end();
+							for(;b!=e; ++b) {
+								std::string side = (*b)[0].get<std::string>();
+								std::string px = (*b)[1].get<std::string>();
+								std::string qty = (*b)[2].get<std::string>();
+							}
+						} else if (result["type"] == "error") {
+							std::stringstream s;
+							s << result;
+							console->error("{0}", s.str());
+						} else if (result["type"] == "ticker") {
+							// "best_ask":"6423.6",
+							// "best_bid":"6423.59",
+							// "high_24h":"6471.00000000",
+							// "last_size":"0.00147931",
+							// "low_24h":"6384.04000000",
+							// "open_24h":"6388.00000000",
+							// "price":"6423.60000000",
+							// "product_id":"BTC-USD",
+							// "sequence":7230193662,
+							// "side":"buy",
+							// "time":"2018-10-24T16:48:56.559000Z",
+							// "trade_id":52862394,
+							// "type":"ticker",
+							// "volume_24h":"5365.44495907",
+							// "volume_30d":"195043.05076131"
+
+							// product_id, time, high_low,volume,open,price
+
+							// the last-value cache should be from ticker
+							std::stringstream s;
+							s << result;
+							// console->info("{0}", s.str());
+
+							CoinCache cc = {};
+							static uint64_t seqno = 0;
+							cc._seqno = seqno++;
+							std::string &product = result["product_id"].get_ref<std::string &>();
+							memcpy(cc._product, product.c_str(), std::max(63UL, product.length()));
+							// "time":"2018-10-24T15:11:25.740000Z"
+							if (!result["time"].is_null()) {
+								std::string &timeStr = result["time"].get_ref<std::string &>();
+
+								if (!timeStr.empty()) {
+									struct tm tm;
+									memset(&tm, 0, sizeof(struct tm));
+									strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
+
+									size_t i = timeStr.find('.');
+									if (i > 0) {
+										cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
+										cc._seconds  = mktime(&tm);
+									}
+								}
+							}
+							cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
+							cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
+							cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
+
+							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							cache->Push(reinterpret_cast<char *>(&cc), sizeof(CoinCache));
+						} else if (result["type"] == "heartbeat") {
+							// skip
+						} else {
+							std::stringstream s;
+							s << result;
+							console->warn("{0} {1}", result["type"].get<std::string>(), s.str()); // spdlog doesnt do streams
+						}
 					} else {
 						assert(false);
 					}
