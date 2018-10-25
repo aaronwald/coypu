@@ -554,6 +554,8 @@ namespace coypu {
     template <typename S>
     class MultiPositionedStreamLog {
       public:
+        typedef typename S::offset_type offset_type;
+
         MultiPositionedStreamLog (const std::shared_ptr<S> &stream) : _stream(stream) {
         }
 
@@ -567,16 +569,12 @@ namespace coypu {
         }
 
         int Register (int fd) {
-            // DTRACE_PROBE1(coypu, "multi-register", fd);
-
             _curOffsets.resize(fd+1, UINT64_MAX);
             _curOffsets[fd] = 0;
             return 0;
         }
 
         int Unregister (int fd) {
-            // DTRACE_PROBE1(coypu, "multi-unregister", fd);
-
             if (fd >= _curOffsets.size()) return -3;
             _curOffsets[fd] = UINT64_MAX;
             return 0;
@@ -584,8 +582,6 @@ namespace coypu {
 
         int Writev (typename S::offset_type  size,
                     int fd, std::function <int(int, const struct iovec *, int)> &cb) {
-          // DTRACE_PROBE2(coypu, "multi-Writev", size, fd);
-
           if (fd >= _curOffsets.size()) return -3;
           if (_curOffsets[fd] == UINT64_MAX) return -4; //unregistered
           int r = _stream->Writev(_curOffsets[fd], size, fd, cb);

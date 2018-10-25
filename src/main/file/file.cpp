@@ -1,13 +1,34 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <linux/limits.h>
 #include <fcntl.h>
+#include <vector>
+#include <string>
 #include "file.h"
+#include "util/string-util.h"
 
 using namespace coypu::file;
+
+int FileUtil::Mkdir (const char *dir, mode_t mode, bool ignore_last) {
+  std::vector<std::string> paths;
+  char path[PATH_MAX];
+  ::memset(path, 0, sizeof(path));
+
+  coypu::util::StringUtil::Split(dir, '/', paths);
+  if (ignore_last) paths.pop_back();
+
+  int offset = 0;
+  for (std::string &s : paths) {
+    offset += ::snprintf(&path[offset], sizeof(path)-offset, offset == 0 ? "%s" : "/%s", s.c_str());
+    ::mkdir(path, mode); // ignore error
+  }
+  return 0;
+}
 
 int FileUtil::MakeTemp(const char *pfix, char *buf, size_t bufsize) {
   snprintf(buf, bufsize, "/tmp/%s-XXXXXX", pfix);

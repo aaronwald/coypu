@@ -4,20 +4,32 @@
 
 #include <stdint.h>
 #include <vector>
+#include <memory>
+#include <functional>
 
 namespace coypu {
     namespace cache {
-        template <typename MergeTrait, typename StreamTrait>
+        template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
         class Cache {
             public:
                 typedef uint32_t cache_id;
-                typedef uint64_t seq_no;
 
-                Cache () : _nextId(0), _step(32) {
-                    static_assert(sizeof(CacheValue) == 32, "Cache Page Size Check");
+                // restore cache from stream. 0 success, otherwise error
+                // output next seq
+                typedef std::function<int(std::shared_ptr<LogStreamTrait> &, uint64_t &)> restore_cb_type;
+
+                Cache (const std::shared_ptr<LogStreamTrait> &stream) : _nextId(0), _step(32), _nextSeqNo(0), _stream(stream) {
+                    static_assert(sizeof(CacheType) == SizeCheck, "CacheType Size Check");
                 }
 
                 virtual ~Cache () {
+                }
+
+                int Restore () {
+                    if (_restore) {
+                        return _restore(_stream, _nextSeqNo);
+                    }
+                    return -1;
                 }
 
                 cache_id Register () {
@@ -29,20 +41,13 @@ namespace coypu {
                     return nextId;
                 }
 
-                bool Update (cache_id id, uint64_t offset, uint64_t len) {
-                    if (id >= _cache.size()) return false;
-                    _cache[id]._offset = offset;
-                    _cache[id]._len = len;
-                    return true;
+                uint64_t NextSeq () {
+                    return _nextSeqNo++;
                 }
 
-                struct CacheValue {
-                    cache_id  _id;      // 4
-                    char      _pad[4];  // 8
-                    uint64_t  _offset;  // 16
-                    uint64_t  _len;     // 24
-                    char      _pad2[8]; // 32
-                } __attribute__ ((packed, aligned(32)));
+                int Push (const char *data, typename LogStreamTrait::offset_type len) {
+                    return _stream->Push(data, len);
+                }
 
                 // Cache is sequenced, Log is not. 
                 // Log (PStore) - Merge (Cache)
@@ -77,8 +82,11 @@ namespace coypu {
 
                 cache_id _nextId;
                 uint16_t _step;
+                uint64_t _nextSeqNo;
 
-                std::vector <CacheValue> _cache;
+                std::vector <CacheType> _cache;
+                std::shared_ptr<LogStreamTrait> _stream;
+                restore_cb_type _restore;
         };
     }
 }
