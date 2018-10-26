@@ -5,18 +5,27 @@
 #include <stdint.h>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 #include <functional>
+#include <string>
+#include <iostream>
 
 namespace coypu {
     namespace cache {
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
+            class Cache;
+
+        template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
+             std::ostream& operator<<(std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
+
+        template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
         class Cache {
             public:
                 typedef uint32_t cache_id;
+                typedef std::string key_type;
 
                 // restore cache from stream. 0 success, otherwise error
                 // output next seq
-                typedef std::function<int(std::shared_ptr<LogStreamTrait> &, uint64_t &)> restore_cb_type;
 
                 Cache (const std::shared_ptr<LogStreamTrait> &stream) : _nextId(0), _step(32), _nextSeqNo(0), _stream(stream) {
                     static_assert(sizeof(CacheType) == SizeCheck, "CacheType Size Check");
@@ -25,11 +34,10 @@ namespace coypu {
                 virtual ~Cache () {
                 }
 
-                int Restore () {
-                    if (_restore) {
-                        return _restore(_stream, _nextSeqNo);
-                    }
-                    return -1;
+                int Restore (const CacheType &t) {
+                    Store(t);
+                    _nextSeqNo = std::max(_nextSeqNo+1, t._seqno);
+                    return 0;
                 }
 
                 cache_id Register () {
@@ -45,9 +53,25 @@ namespace coypu {
                     return _nextSeqNo++;
                 }
 
-                int Push (const char *data, typename LogStreamTrait::offset_type len) {
-                    return _stream->Push(data, len);
+                uint64_t CheckSeq () {
+                    return _nextSeqNo;
                 }
+                
+                int Push (const CacheType &t) {
+                    Store(t);
+                    return _stream->Push(reinterpret_cast<const char *>(&t), SizeCheck);
+                }
+
+                friend std::ostream& operator<< <> (std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
+
+                void Dump (std::ostream &out) const {
+                    auto b = _cacheMap.begin();
+                    auto e = _cacheMap.end();
+                    for (;b!=e; ++b) {
+                        out << (*b).first << " [" << (*b).second._seqno << "] O[" << (*b).second._origseqno << "], ";
+                    }
+                }
+
 
                 // Cache is sequenced, Log is not. 
                 // Log (PStore) - Merge (Cache)
@@ -84,10 +108,34 @@ namespace coypu {
                 uint16_t _step;
                 uint64_t _nextSeqNo;
 
+                std::unordered_map <key_type, CacheType> _cacheMap;
+
                 std::vector <CacheType> _cache;
                 std::shared_ptr<LogStreamTrait> _stream;
-                restore_cb_type _restore;
+
+                bool Store (const CacheType &c) {
+                    key_type key(c._key);
+                    auto i = _cacheMap.find(key);
+                    if (i == _cacheMap.end()) {
+                        return _cacheMap.insert(std::make_pair(key, c)).second;
+                    } else {
+                        if (c._seqno > (*i).second._seqno) {
+                            (*i).second = c;
+                        }
+                    }
+
+                    return true;
+                }
+
+                
         };
+
+        template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
+        std::ostream& operator<<  (std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache) {
+            cache.Dump(os);
+            return os;
+        }  
+
     }
 }
 

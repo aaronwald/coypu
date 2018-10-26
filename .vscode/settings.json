@@ -69,7 +69,9 @@
         "map": "cpp",
         "set": "cpp",
         "locale": "cpp",
-        "__functional_base": "cpp"
+        "__functional_base": "cpp",
+        "__locale": "cpp",
+        "ios": "cpp"
     },
     "python.pythonPath": "${workspaceFolder}/test/test/bin/python3.6"
 }

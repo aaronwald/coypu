@@ -53,7 +53,7 @@ using namespace coypu::cache;
 
 
 struct CoinCache {
-	char _product[64]; // keep product first. if first byte is null, then this is treated as a blank record
+	char _key[64]; // keep product first. if first byte is null, then this is treated as a blank record
 	uint64_t _seqno;
 	uint64_t _origseqno;
 
@@ -69,7 +69,7 @@ struct CoinCache {
 	CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
 		_seconds(0), _milliseconds(0), _high24(0), _low24(0),
 		_vol24(0), _open(0), _last(0) {
-			::memset(_product, 0, sizeof(_product));
+			::memset(_key, 0, sizeof(_key));
 		}
 
 } __attribute__ ((packed, aligned(64)));
@@ -84,6 +84,9 @@ typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishSt
 typedef LogWriteBuf<FileUtil> StoreType;
 typedef Cache<CoinCache, 128, PublishStreamType, void> CacheType;
 
+const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
+const std::string COYPU_CACHE_PATH = "stream/cache/data";
+
 void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	CPUManager::SetName("epoll");
 
@@ -94,18 +97,65 @@ void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	}
 }
 
-template <typename StreamType, typename BufType>
-std::shared_ptr <StreamType> CreateStore (const std::string &name) {
-
-	FileUtil::Mkdir(name.c_str(), 0777, true);
-
-	std::shared_ptr<StreamType> streamSP = nullptr; 
-	for (uint32_t index = 0; index < UINT32_MAX; ++index) {
+template <typename RecordType>
+int RestoreStore (const std::string &name, const std::function<void(const char *, ssize_t)> &restore_record_cb) {
+	uint32_t index = 0;
+	bool b = false;
+	constexpr size_t record_size = sizeof(RecordType);
+	char data[record_size];
+	do {
 		char storeFile[PATH_MAX];
 		snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
-		bool b = false;
 		FileUtil::Exists(storeFile, b);
-		if (!b) {
+		if (b) {
+			int fd = FileUtil::Open(storeFile, O_LARGEFILE|O_RDONLY, 0600);
+			if (fd >= 0) {
+				off64_t curSize = 0;
+				FileUtil::GetSize(fd, curSize);
+				assert(curSize % record_size == 0);
+				// FileUtil::LSeekSet (fd, 0);
+
+				int count = 0;
+				for (off64_t c = 0; c < curSize; c += record_size) {
+					ssize_t r = ::read(fd, data, record_size);
+					if (r < 0) {
+						::close(fd);
+						return r;
+					}
+
+					if (r != record_size) {
+						::close(fd);
+						return -100;
+					}
+
+					if (data[0] != 0) {
+						++count;
+						restore_record_cb(data, r);
+					}
+				}	
+
+				::close(fd);
+			}
+		}
+	} while (b && ++index < UINT32_MAX);
+
+	return 0;
+}
+
+template <typename StreamType, typename BufType>
+std::shared_ptr <StreamType> CreateStore (const std::string &name) {
+	bool fileExists = false;
+	char storeFile[PATH_MAX];
+	std::shared_ptr<StreamType> streamSP = nullptr; 
+		
+	FileUtil::Mkdir(name.c_str(), 0777, true);
+	
+	// TODO if we go backward it will be quicker (less copies?)
+	for (uint32_t index = 0; index < UINT32_MAX; ++index) {
+		::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+		fileExists = false;
+		FileUtil::Exists(storeFile, fileExists);
+		if (!fileExists) {
 			// open in direct mode
 			int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
 			if (fd >= 0) {
@@ -310,16 +360,29 @@ int main(int argc, char **argv)
 
 	// BEGIN Websocket Server Test
 
-	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>("stream/publish/data"); 
+	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_PUBLISH_PATH); 
 	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
 
-	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>("stream/cache/data"); 
+
+	
+	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_CACHE_PATH); 
 	assert(cacheStreamSP != nullptr);
 
 	std::shared_ptr<CacheType> coinCache = std::make_shared<CacheType>(cacheStreamSP);
 	std::weak_ptr<CacheType> wCoinCache = coinCache;
 
+	std::function<void(const char *, ssize_t)> restore = [&coinCache] (const char *data, ssize_t len) {
+		assert(len == sizeof(CoinCache));
+		const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
+		coinCache->Restore(*cc);
+	};
+	int xx = RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore);
+	if (xx < 0) {
+		wsLogger->perror(errno, "RestoreStore");
+	}
+	// coinCache->Dump(std::cout);
+	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
@@ -473,7 +536,7 @@ int main(int argc, char **argv)
 				size_t pageSize = MemManager::GetPageSize();
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
-				a->info("Current size {0}", curSize);
+				a->info("Current size [{0}]", curSize);
 
 				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd);
 				streamSP = std::make_shared<StreamType>(bufSP);
@@ -487,9 +550,6 @@ int main(int argc, char **argv)
 		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
-			if (!(seqNum % 1000)) {
-				console->info("onText {0} {1} SeqNum[{2}]  ", len, offset, seqNum);
-			}
 
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
@@ -497,6 +557,12 @@ int main(int argc, char **argv)
 			auto coinCache = wCoinCache.lock();
 			
 			if (publish && wsManager && stream  && coinCache) {
+				if (!(seqNum % 1000)) {
+					std::stringstream ss;
+					ss << *coinCache;
+					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
+				}
+
 				char jsonDoc[1024] = {};
 				if (len < 1024) {
 					// sad copying but nice json library
@@ -545,7 +611,7 @@ int main(int argc, char **argv)
 							CoinCache cc(coinCache->NextSeq());
 							if (!result["product_id"].is_null()) {
 								std::string &product = result["product_id"].get_ref<std::string &>();
-								memcpy(cc._product, product.c_str(), std::max(63UL, product.length()));
+								memcpy(cc._key, product.c_str(), std::max(sizeof(cc._key)-1, product.length()));
 							}
 
 							if (!result["time"].is_null()) {
@@ -581,7 +647,7 @@ int main(int argc, char **argv)
 							}
 
 							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
-							coinCache->Push(reinterpret_cast<char *>(&cc), sizeof(CoinCache));
+							coinCache->Push(cc);
 						} else if (type == "subscriptions") {
 						} else if (type == "heartbeat") {
 							// skip
