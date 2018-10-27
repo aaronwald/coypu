@@ -13,40 +13,27 @@
 namespace coypu {
     namespace cache {
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
-            class Cache;
+            class SequenceCache;
 
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
-             std::ostream& operator<<(std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
+            std::ostream& operator<<(std::ostream& os, const SequenceCache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
 
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
-        class Cache {
+        class SequenceCache {
             public:
-                typedef uint32_t cache_id;
                 typedef std::string key_type;
 
-                // restore cache from stream. 0 success, otherwise error
-                // output next seq
-
-                Cache (const std::shared_ptr<LogStreamTrait> &stream) : _nextId(0), _step(32), _nextSeqNo(0), _stream(stream) {
+                SequenceCache (const std::shared_ptr<LogStreamTrait> &stream) :  _nextSeqNo(0), _stream(stream) {
                     static_assert(sizeof(CacheType) == SizeCheck, "CacheType Size Check");
                 }
 
-                virtual ~Cache () {
+                virtual ~SequenceCache () {
                 }
 
                 int Restore (const CacheType &t) {
                     Store(t);
                     _nextSeqNo = std::max(_nextSeqNo+1, t._seqno);
                     return 0;
-                }
-
-                cache_id Register () {
-                    cache_id nextId = _nextId++;
-                    if (nextId >= _cache.size()) {
-                        _cache.resize(_cache.size() + _step);
-                    }
-
-                    return nextId;
                 }
 
                 uint64_t NextSeq () {
@@ -57,60 +44,22 @@ namespace coypu {
                     return _nextSeqNo;
                 }
                 
-                int Push (const CacheType &t) {
+                int Push (CacheType &t) {
+                    t._seqno = NextSeq();
                     Store(t);
                     return _stream->Push(reinterpret_cast<const char *>(&t), SizeCheck);
                 }
 
-                friend std::ostream& operator<< <> (std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
-
-                void Dump (std::ostream &out) const {
-                    auto b = _cacheMap.begin();
-                    auto e = _cacheMap.end();
-                    for (;b!=e; ++b) {
-                        out << (*b).first << " [" << (*b).second._seqno << "] O[" << (*b).second._origseqno << "], ";
-                    }
-                }
-
-
-                // Cache is sequenced, Log is not. 
-                // Log (PStore) - Merge (Cache)
-                // swap seq no when a new doc is complete
-                // stream out seqno. can only trim when no longer in use (can compress old values)
-                // cacheid -> (seqno) (1 cache line) or cache_id -> (offset, len) (2 cache lines)
-                // effectively key->value
-
-                // https://github.com/nlohmann/json.git  ( v3.3.0 )
-
-                // need boost
-                // https://github.com/apache/arrow.git ( apache-arrow-0.11.1 )
-                // https://github.com/apache/parquet-cpp.git ( apache-parquet-cpp-1.5.0 )
-
-                // TODO 0. Parse json (nlohmann). For doc we receive. write a simpler record , security / value
-                // TODO 1. Restore Page Function - Need read record function
-                // TODO 2. Sort Page
-                // TODO 3. Merge Page Function to disk
-                // TODO 4. Compress page
-                // TODO 5. Search on disk
-
-                // page compress thread - read and write out new page on disk that is sorted (LSM)
-                // sort and compress pages to get latest per page
-                // group pages for more
-                // bloom filter for lots of keys to find pages
-
-                // latest in memory - cap
-                // if not found then search through 
+                // friend functions
+                friend std::ostream& operator<< <> (std::ostream& os, const SequenceCache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache);  
             private:
-                Cache (const Cache &other);
-                Cache &operator= (const Cache &other);
+                SequenceCache (const SequenceCache &other);
+                SequenceCache &operator= (const SequenceCache &other);
 
-                cache_id _nextId;
-                uint16_t _step;
                 uint64_t _nextSeqNo;
 
                 std::unordered_map <key_type, CacheType> _cacheMap;
 
-                std::vector <CacheType> _cache;
                 std::shared_ptr<LogStreamTrait> _stream;
 
                 bool Store (const CacheType &c) {
@@ -127,15 +76,20 @@ namespace coypu {
                     return true;
                 }
 
-                
+                void Dump (std::ostream &out) const {
+                    auto b = _cacheMap.begin();
+                    auto e = _cacheMap.end();
+                    for (;b!=e; ++b) {
+                        out << (*b).first << " [" << (*b).second._seqno << "] O[" << (*b).second._origseqno << "], ";
+                    }
+                }
         };
 
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
-        std::ostream& operator<<  (std::ostream& os, const Cache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache) {
+        std::ostream& operator<<  (std::ostream& os, const SequenceCache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache) {
             cache.Dump(os);
             return os;
         }  
-
     }
 }
 

@@ -82,7 +82,7 @@ typedef coypu::store::PositionedStream <RWBufType> StreamType;
 typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
 typedef LogWriteBuf<FileUtil> StoreType;
-typedef Cache<CoinCache, 128, PublishStreamType, void> CacheType;
+typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
@@ -381,6 +381,13 @@ int main(int argc, char **argv)
 	if (xx < 0) {
 		wsLogger->perror(errno, "RestoreStore");
 	}
+
+	{
+		std::stringstream ss;
+		ss << *coinCache;
+		console->info("Restore {0}", ss.str());
+	}
+
 	// coinCache->Dump(std::cout);
 	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
