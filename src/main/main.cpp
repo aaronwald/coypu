@@ -4,6 +4,7 @@
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <sys/uio.h>
+#include <time.h>
 
 #include <memory>
 #include <vector>
@@ -12,6 +13,11 @@
 #include <thread>
 
 #include <openssl/rand.h>
+
+#include <iomanip>
+#include <sstream>
+#include <nlohmann/json.hpp>
+
 
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h" // support for basic file logging
@@ -30,6 +36,9 @@
 #include "file/file.h"
 #include "store/store.h"
 #include "buf/buf.h"
+#include "cache/cache.h"
+
+using json = nlohmann::json;
 
 using namespace coypu;
 using namespace coypu::backtrace;
@@ -40,15 +49,43 @@ using namespace coypu::net::ssl;
 using namespace coypu::mem;
 using namespace coypu::file;
 using namespace coypu::store;
+using namespace coypu::cache;
+
+
+struct CoinCache {
+	char _key[64]; // keep product first. if first byte is null, then this is treated as a blank record
+	uint64_t _seqno;
+	uint64_t _origseqno;
+
+	uint32_t _seconds;
+	uint32_t _milliseconds;
+
+	double _high24;
+	double _low24;
+	double _vol24;
+	double _open;
+	double _last;
+
+	CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
+		_seconds(0), _milliseconds(0), _high24(0), _low24(0),
+		_vol24(0), _open(0), _last(0) {
+			::memset(_key, 0, sizeof(_key));
+		}
+
+} __attribute__ ((packed, aligned(64)));
 
 // Coypu Types
 typedef std::shared_ptr<SPDLogger> LogType;
 typedef coypu::event::EventManager<LogType> EventManagerType;
-typedef coypu::store::PStoreRWStream<FileUtil, coypu::store::LRUCache, 128> RWBufType;
+typedef coypu::store::LogRWStream<FileUtil, coypu::store::LRUCache, 128> RWBufType;
 typedef coypu::store::PositionedStream <RWBufType> StreamType;
-typedef coypu::store::MultiPositionedStream <RWBufType> PublishStreamType;
+typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
-typedef PStoreScrollWriteBuf<FileUtil> StoreType;
+typedef LogWriteBuf<FileUtil> StoreType;
+typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
+
+const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
+const std::string COYPU_CACHE_PATH = "stream/cache/data";
 
 void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	CPUManager::SetName("epoll");
@@ -60,8 +97,88 @@ void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
 	}
 }
 
+template <typename RecordType>
+int RestoreStore (const std::string &name, const std::function<void(const char *, ssize_t)> &restore_record_cb) {
+	uint32_t index = 0;
+	bool b = false;
+	constexpr size_t record_size = sizeof(RecordType);
+	char data[record_size];
+	do {
+		char storeFile[PATH_MAX];
+		snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+		FileUtil::Exists(storeFile, b);
+		if (b) {
+			int fd = FileUtil::Open(storeFile, O_LARGEFILE|O_RDONLY, 0600);
+			if (fd >= 0) {
+				off64_t curSize = 0;
+				FileUtil::GetSize(fd, curSize);
+				assert(curSize % record_size == 0);
+				// FileUtil::LSeekSet (fd, 0);
+
+				int count = 0;
+				for (off64_t c = 0; c < curSize; c += record_size) {
+					ssize_t r = ::read(fd, data, record_size);
+					if (r < 0) {
+						::close(fd);
+						return r;
+					}
+
+					if (r != record_size) {
+						::close(fd);
+						return -100;
+					}
+
+					if (data[0] != 0) {
+						++count;
+						restore_record_cb(data, r);
+					}
+				}	
+
+				::close(fd);
+			}
+		}
+	} while (b && ++index < UINT32_MAX);
+
+	return 0;
+}
+
+template <typename StreamType, typename BufType>
+std::shared_ptr <StreamType> CreateStore (const std::string &name) {
+	bool fileExists = false;
+	char storeFile[PATH_MAX];
+	std::shared_ptr<StreamType> streamSP = nullptr; 
+		
+	FileUtil::Mkdir(name.c_str(), 0777, true);
+	
+	// TODO if we go backward it will be quicker (less copies?)
+	for (uint32_t index = 0; index < UINT32_MAX; ++index) {
+		::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+		fileExists = false;
+		FileUtil::Exists(storeFile, fileExists);
+		if (!fileExists) {
+			// open in direct mode
+			int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+			if (fd >= 0) {
+				size_t pageSize = MemManager::GetPageSize();
+				off64_t curSize = 0;
+				FileUtil::GetSize(fd, curSize);
+
+				std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd);
+				streamSP = std::make_shared<StreamType>(bufSP);
+			} else {
+				return nullptr;
+			}
+			return streamSP;
+		}
+	}
+	return nullptr;
+}
+
 int main(int argc, char **argv)
 {
+	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
+
+
 	if (argc != 2)
 	{
 		fprintf(stderr, "Usage: %s <yaml_config>\n", argv[0]);
@@ -70,7 +187,7 @@ int main(int argc, char **argv)
 
 	int r = CPUManager::RunOnNode(0);
 	if (r) {
-		fprintf(stderr, "Numa failed %d\n", r);
+		fprintf(stderr, "Num failed %d\n", r);
 		exit(1);
 	}
 	
@@ -242,27 +359,37 @@ int main(int argc, char **argv)
 	};
 
 	// BEGIN Websocket Server Test
-	std::shared_ptr<PublishStreamType> publishStreamSP = nullptr; 
-	std::string publishFile("publish.store");
-	if (!publishFile.empty()) {
-		bool b = false;
-		FileUtil::Exists(publishFile.c_str(), b);
-		// open in direct mode
-		int fd = FileUtil::Open(publishFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-		if (fd >= 0) {
-			size_t pageSize = MemManager::GetPageSize();
-			off64_t curSize = 0;
-			FileUtil::GetSize(fd, curSize);
-			a->info("Current size {0}", curSize);
 
-			std::shared_ptr<RWBufType> publishBufSP = std::make_shared<RWBufType>(pageSize, curSize, fd);
-			publishStreamSP = std::make_shared<PublishStreamType>(publishBufSP);
-		} else {
-			a->perror(errno, "Open");
-		}
-	}
+	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_PUBLISH_PATH); 
+	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
 
+
+	
+	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_CACHE_PATH); 
+	assert(cacheStreamSP != nullptr);
+
+	std::shared_ptr<CacheType> coinCache = std::make_shared<CacheType>(cacheStreamSP);
+	std::weak_ptr<CacheType> wCoinCache = coinCache;
+
+	std::function<void(const char *, ssize_t)> restore = [&coinCache] (const char *data, ssize_t len) {
+		assert(len == sizeof(CoinCache));
+		const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
+		coinCache->Restore(*cc);
+	};
+	int xx = RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore);
+	if (xx < 0) {
+		wsLogger->perror(errno, "RestoreStore");
+	}
+
+	{
+		std::stringstream ss;
+		ss << *coinCache;
+		console->info("Restore {0}", ss.str());
+	}
+
+	// coinCache->Dump(std::cout);
+	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
@@ -308,12 +435,6 @@ int main(int argc, char **argv)
 					assert(false);
 				}
 
-				auto wsManager = wWsManager.lock();
-				if (wsManager) {
-					// TODO TODO change, instead of direct queue, wsManager here should read from the stream and publish
-					// need a stream buffer instead of the writeBuf to check
-					// wsManager->Queue(clientfd, coypu::http::websocket::WS_OP_TEXT_FRAME, "Foo", 3);
-				}
 				auto eventMgr = wEventMgr.lock();
 				auto publish = wPublishStreamSP.lock();
 				if (publish && eventMgr) {
@@ -369,15 +490,34 @@ int main(int argc, char **argv)
 		std::function <void(int)> onOpen = [wWsManager] (int fd) {
 			auto wsManager = wWsManager.lock();
 			if (wsManager) {
-				// eth to usd ticker
-				std::string subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"ticker\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				bool queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::vector<std::string> pairs;
+				pairs.push_back("BTC-USD");
+				pairs.push_back("ETH-USD");
+				pairs.push_back("ETH-EUR");
+				pairs.push_back("ETH-BTC");
+				pairs.push_back("ZRX-USD");
+				pairs.push_back("EOS-USD");
 
-				subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"heartbeat\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::vector<std::string> channels;
+				channels.push_back("ticker");
+				channels.push_back("heartbeat");
+				channels.push_back("level2");
 
-				subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"level2\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+				std::string subStr;
+				bool queue;
+
+				for (std::string channel : channels) {
+					for (std::string pair : pairs) {
+						subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
+						queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+					}
+				}
+
+				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"heartbeat\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
+				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+
+				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"level2\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
+				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 			}
 		};
 
@@ -391,28 +531,6 @@ int main(int argc, char **argv)
 			return 0;
 		};
 
-		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wWsManager] (uint64_t offset, off64_t len) {
-			static uint64_t seqNum = 0;
-			++seqNum;
-			if (!(seqNum % 1000)) {
-				console->info("onText {0} {1} SeqNum[{2}]  ", len, offset, seqNum);
-			}
-
-			auto wsManager = wWsManager.lock();
-
-			auto publish = wPublishStreamSP.lock();
-			if (publish && wsManager) {
-				// Create a websocket message and persist
-				char pub[1024];
-				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
-				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-				publish->Push(pub, len);
-				wsManager->SetWriteAll();
-			}
-		};
-
-	
 		std::string storeFile("gdax.store");
 		std::shared_ptr<StreamType> streamSP = nullptr; 
 
@@ -425,7 +543,7 @@ int main(int argc, char **argv)
 				size_t pageSize = MemManager::GetPageSize();
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
-				a->info("Current size {0}", curSize);
+				a->info("Current size [{0}]", curSize);
 
 				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd);
 				streamSP = std::make_shared<StreamType>(bufSP);
@@ -433,7 +551,131 @@ int main(int argc, char **argv)
 				a->perror(errno, "Open");
 			}
 		}
+		std::weak_ptr<StreamType> wStreamSP = streamSP; 
 
+		// not weak
+		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
+			static uint64_t seqNum = 0;
+			++seqNum;
+
+			auto wsManager = wWsManager.lock();
+			auto publish = wPublishStreamSP.lock();
+			auto stream = wStreamSP.lock();
+			auto coinCache = wCoinCache.lock();
+			
+			if (publish && wsManager && stream  && coinCache) {
+				if (!(seqNum % 1000)) {
+					std::stringstream ss;
+					ss << *coinCache;
+					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
+				}
+
+				char jsonDoc[1024] = {};
+				if (len < 1024) {
+					// sad copying but nice json library
+					if(stream->Pop(jsonDoc, offset, len)) {
+						jsonDoc[len] = 0;
+						json result = json::parse(jsonDoc);
+						std::string &type = result["type"].get_ref<std::string &>();
+						if (type == "l2update") {
+							std::string product = result["product_id"];
+
+							std::vector<json> changes = result["changes"];
+							auto b = changes.begin();
+							auto e = changes.end();
+							for(;b!=e; ++b) {
+								std::string side = (*b)[0].get<std::string>();
+								std::string px = (*b)[1].get<std::string>();
+								std::string qty = (*b)[2].get<std::string>();
+							}
+						} else if (type == "error") {
+							std::stringstream s;
+							s << result;
+							console->error("{0}", s.str());
+						} else if (type == "ticker") {
+							// "best_ask":"6423.6",
+							// "best_bid":"6423.59",
+							// x"high_24h":"6471.00000000",
+							// "last_size":"0.00147931",
+							// x"low_24h":"6384.04000000",
+							// "open_24h":"6388.00000000",
+							// "price":"6423.60000000",
+							// x"product_id":"BTC-USD",
+							// x"sequence":7230193662,
+							// "side":"buy",
+							// x"time":"2018-10-24T16:48:56.559000Z",
+							// "trade_id":52862394,
+							// "type":"ticker",
+							// x"volume_24h":"5365.44495907",
+							// "volume_30d":"195043.05076131"
+
+							// product_id, time, high_low,volume,open,price
+
+							// the last-value cache should be from ticker
+							std::stringstream s;
+							s << result;
+
+							CoinCache cc(coinCache->NextSeq());
+							if (!result["product_id"].is_null()) {
+								std::string &product = result["product_id"].get_ref<std::string &>();
+								memcpy(cc._key, product.c_str(), std::max(sizeof(cc._key)-1, product.length()));
+							}
+
+							if (!result["time"].is_null()) {
+								std::string &timeStr = result["time"].get_ref<std::string &>();
+
+								if (!timeStr.empty()) {
+									struct tm tm;
+									memset(&tm, 0, sizeof(struct tm));
+									strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
+
+									size_t i = timeStr.find('.');
+									if (i > 0) {
+										cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
+										cc._seconds  = mktime(&tm);
+									}
+								}
+							}
+
+							if (!result["high_24h"].is_null()) {
+								cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["low_24h"].is_null()) {
+								cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["volume_24h"].is_null()) {
+								cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
+							}
+
+							if (!result["sequence"].is_null()) {
+								cc._origseqno = result["sequence"].get<uint64_t>();
+							}
+
+							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							coinCache->Push(cc);
+						} else if (type == "subscriptions") {
+						} else if (type == "heartbeat") {
+							// skip
+						} else {
+							std::stringstream s;
+							s << result;
+							console->warn("{0} {1}", type, s.str()); // spdlog does not do streams
+						}
+					} else {
+						assert(false);
+					}
+				}
+			
+
+				char pub[1024];
+				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
+				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+				publish->Push(pub, len);
+				wsManager->SetWriteAll();
+			}
+		};
 		
 		// stream is associated with the fd. socket can only support one websocket connection at a time.
 		wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, streamSP, nullptr);	
@@ -455,10 +697,12 @@ int main(int argc, char **argv)
 		wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
 	}
 
-	// watch out for threading on logggers
+	// watch out for threading on loggers
 	std::thread t1(bar, eventMgr, std::ref(done));
 	t1.join();
 	eventMgr->Close();
 
 	return 0;
 }
+
+
