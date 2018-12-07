@@ -125,7 +125,7 @@ namespace coypu
 
                     WebSocketManager (LogTrait logger, 
                                         write_cb_type set_write) : _logger(logger),
-                                        _capacity(32*1024), _set_write(set_write)  {
+                                        _capacity(64*1024), _set_write(set_write)  {
                     }
 
                     virtual ~WebSocketManager () {
@@ -212,7 +212,9 @@ namespace coypu
                             if (r < 0) return r;
 
                         }
-                        ProcessState(con);
+								
+								while (ProcessState(con)) {
+								}
 
                         return 0;
                     }
@@ -473,7 +475,9 @@ namespace coypu
                             } else {
                                 _logger->error("Unsupported opcode [{0}]", con->_frame._opcode);
                             }
-                        }
+                        } else {
+								  return 0;
+								}
 
                         return 1;
                     }
@@ -641,7 +645,7 @@ namespace coypu
                                     r = DoOpen(con->_httpBuf, con);
                                 }
                                 if (r == 0) return false;
-                                else if (con->_state != WS_CS_OPEN_DATA) return true; // wait for more data  
+                                else if (con->_state != WS_CS_OPEN_DATA) return false; // wait for more data  
                                 // ALLOW TO FALL THROUGH
                             }
 

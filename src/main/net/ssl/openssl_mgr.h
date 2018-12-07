@@ -158,7 +158,7 @@ namespace coypu {
                         if (!con) return -3;
                 
                         int xret = SSL_read(con->_ssl, iovec[0].iov_base, iovec[0].iov_len);
-
+								
                         if (xret <= 0) {
                             int ret = SSL_get_error(con->_ssl, xret);
                             if (ret == SSL_ERROR_WANT_READ) {

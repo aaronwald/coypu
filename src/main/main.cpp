@@ -37,6 +37,7 @@
 #include "store/store.h"
 #include "buf/buf.h"
 #include "cache/cache.h"
+#include "book/level.h"
 
 using json = nlohmann::json;
 
@@ -50,6 +51,28 @@ using namespace coypu::mem;
 using namespace coypu::file;
 using namespace coypu::store;
 using namespace coypu::cache;
+using namespace coypu::book;
+
+struct CoinLevel {
+  uint64_t px;
+  uint64_t qty;
+  CoinLevel *next, *prev;
+
+  CoinLevel (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
+  }
+
+  CoinLevel () : px (UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr) {
+  }
+
+  bool operator()(const CoinLevel &lhs, const CoinLevel &rhs) const {
+	 return lhs.px < rhs.px;
+  }
+
+  bool operator()(const CoinLevel *lhs, const CoinLevel *rhs) const {
+	 return lhs->px < rhs->px;
+  }
+} __attribute__((packed, aligned(64))) ;
+
 
 
 struct CoinCache {
@@ -491,12 +514,12 @@ int main(int argc, char **argv)
 			auto wsManager = wWsManager.lock();
 			if (wsManager) {
 				std::vector<std::string> pairs;
-				pairs.push_back("BTC-USD");
+				//				pairs.push_back("BTC-USD");
 				pairs.push_back("ETH-USD");
-				pairs.push_back("ETH-EUR");
-				pairs.push_back("ETH-BTC");
-				pairs.push_back("ZRX-USD");
-				pairs.push_back("EOS-USD");
+				//pairs.push_back("ETH-EUR");
+				//pairs.push_back("ETH-BTC");
+				//pairs.push_back("ZRX-USD");
+				//pairs.push_back("EOS-USD");
 
 				std::vector<std::string> channels;
 				channels.push_back("ticker");
@@ -557,27 +580,52 @@ int main(int argc, char **argv)
 		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
+					  static LevelAllocator<CoinLevel, 4096*16> la;
+					  static CLevelBook<CoinLevel> book;
 
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
 			auto stream = wStreamSP.lock();
 			auto coinCache = wCoinCache.lock();
-			
 			if (publish && wsManager && stream  && coinCache) {
-				if (!(seqNum % 1000)) {
+				if (!(seqNum % 100)) {
 					std::stringstream ss;
 					ss << *coinCache;
 					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
+
+
 				}
 
-				char jsonDoc[1024] = {};
-				if (len < 1024) {
+				char jsonDoc[1024*1024] = {};
+				if (len < sizeof(jsonDoc)) {
 					// sad copying but nice json library
 					if(stream->Pop(jsonDoc, offset, len)) {
+					  
 						jsonDoc[len] = 0;
 						json result = json::parse(jsonDoc);
 						std::string &type = result["type"].get_ref<std::string &>();
-						if (type == "l2update") {
+						if (type == "snapshot") {
+						  // bids
+						  // asks
+							std::string product = result["product_id"];
+
+							std::vector<json> bids = result["bids"];
+							if (product == "ETH-USD") {
+							  auto b = bids.begin();
+							  auto e = bids.end();
+							  for(;b!=e; ++b) {
+								 std::string px = (*b)[0].get<std::string>();
+								 std::string qty = (*b)[1].get<std::string>();
+
+								  uint64_t ipx = atof(px.c_str()) * 100000000;
+								  uint64_t iqty = atof(qty.c_str()) * 100000000;
+								  book.Insert(la.Allocate(ipx, iqty));
+							  }
+							}
+
+							std::vector<json> asks = result["asks"];
+							
+						} else if (type == "l2update") {
 							std::string product = result["product_id"];
 
 							std::vector<json> changes = result["changes"];
@@ -588,7 +636,24 @@ int main(int argc, char **argv)
 								std::string px = (*b)[1].get<std::string>();
 								std::string qty = (*b)[2].get<std::string>();
 
-								std::cout << product << ":" << side << "," << px << "," << qty << std::endl;
+								if (product == "ETH-USD" && side == "buy") {
+
+								  uint64_t ipx = atof(px.c_str()) * 100000000;
+								  uint64_t iqty = atof(qty.c_str()) * 100000000;
+								  if (iqty == 0) {
+									 // TODO Fix leak
+									 CoinLevel *cl = book.Erase(ipx);
+									 if (cl) {
+									 }
+								  } else {
+									 if (!book.Update(ipx, iqty)) {
+										book.Insert(la.Allocate(ipx, iqty));
+									 }
+								  }
+
+								  std::cout << "---" << std::endl;
+								  book.Dump(10);
+								}
 
 								// update side book for px and qty
 							}
