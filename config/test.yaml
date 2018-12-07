@@ -7,7 +7,7 @@ loggers:
 coypu: 
   websocket:
     logger: ws-logger
-    cpu: 3
+    cpu: 1
 
 do-gdax: true
 do-server-test: false
