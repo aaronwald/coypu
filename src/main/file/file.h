@@ -1,7 +1,8 @@
 #ifndef __COYPU_FILE_
 #define __COYPU_FILE_
 #include <string>
-#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/types.h>  
 
 namespace coypu {
   namespace file {
@@ -22,6 +23,7 @@ namespace coypu {
       static int GetSize (int fd, off64_t &offset);
       static int Remove(const char *pathname);
       static int Exists(const char *file, bool &b);
+      static int Mkdir(const char *dir, mode_t mode, bool ignore_last=false);
       static off64_t LSeek (int fd, off64_t offset, int whence);
       static off64_t LSeekEnd (int fd);
       static off64_t LSeekSet (int fd, off64_t offset);

@@ -16,13 +16,13 @@ namespace coypu {
 
     // Simpler to make this a rolling buffer 
     template <typename MMapProvider>
-    class PStoreScrollWriteBuf {
+    class LogWriteBuf {
       public:
-        PStoreScrollWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly) :
+        LogWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly) :
           _pageSize(pageSize), _offset(offset), _fd(fd), _readOnly(readOnly), _dataPage(nullptr, 0)  { 
         }
 
-        virtual ~PStoreScrollWriteBuf () {
+        virtual ~LogWriteBuf () {
           if (_dataPage.first) {
             MMapProvider::MUnmap(_dataPage.first, _pageSize);
           }
@@ -68,8 +68,8 @@ namespace coypu {
         }
 
       private:
-        PStoreScrollWriteBuf (const PStoreScrollWriteBuf &other);
-        PStoreScrollWriteBuf &operator= (const PStoreScrollWriteBuf &other);
+        LogWriteBuf (const LogWriteBuf &other);
+        LogWriteBuf &operator= (const LogWriteBuf &other);
 
         int AllocatePage () {
           if (MMapProvider::Truncate(_fd, _offset+_pageSize)) {
@@ -101,17 +101,17 @@ namespace coypu {
         std::pair<char *, off64_t> _dataPage;
     };
 
-    // class PStoreReadPageBuf
+    // class LogReadPageBuf
     // map / remap
     template <typename MMapProvider>
-    class PStoreReadPageBuf {
+    class LogReadPageBuf {
       public:
-        PStoreReadPageBuf (off64_t pageSize) : 
+        LogReadPageBuf (off64_t pageSize) : 
           _pageSize(pageSize),
           _dataPage(nullptr, UINT64_MAX) {
         }
 
-        virtual ~PStoreReadPageBuf () {
+        virtual ~LogReadPageBuf () {
           MMapProvider::MUnmap(_dataPage.first, _pageSize);
         }
 
@@ -187,8 +187,8 @@ namespace coypu {
         }
 
       private:
-        PStoreReadPageBuf (const PStoreReadPageBuf &other);
-        PStoreReadPageBuf &operator= (const PStoreReadPageBuf &other);
+        LogReadPageBuf (const LogReadPageBuf &other);
+        LogReadPageBuf &operator= (const LogReadPageBuf &other);
 
         off64_t _pageSize;
         std::pair<char *, off64_t> _dataPage;
@@ -198,7 +198,7 @@ namespace coypu {
     class LRUCache {
       public:
 
-        typedef PStoreReadPageBuf <MMapProvider> store_type;
+        typedef LogReadPageBuf <MMapProvider> store_type;
         typedef std::shared_ptr<store_type> page_type; 
         typedef std::pair<uint32_t, page_type> pair_type;
         typedef std::shared_ptr<pair_type> read_cache_type;
@@ -265,12 +265,15 @@ namespace coypu {
     };
 
     template <typename MMapProvider, template <typename, int> class ReadCache, int CacheSize>
-    class PStoreRWStream {
+    class LogRWStream {
       public:
         typedef uint32_t page_offset_type;
         typedef uint64_t offset_type;
+        typedef char value_type;
 
-        PStoreRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
+        typedef LogRWStream<MMapProvider, ReadCache, CacheSize> log_type;
+
+        LogRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
           _writeBuf(pageSize, offset, fd, false),
           _readCache(pageSize, CacheSize, fd),
           _pageSize(pageSize),
@@ -279,8 +282,70 @@ namespace coypu {
           _maxSize(maxSize) {
         }
 
-        virtual ~PStoreRWStream () {
+        virtual ~LogRWStream () {
         } 
+
+        // https://gist.github.com/jeetsukumaran/307264
+        // https://stackoverflow.com/questions/12092448/code-for-a-basic-random-access-iterator-based-on-pointers
+        template <typename LogType>
+        class store_iterator : public std::iterator<std::random_access_iterator_tag, char> {
+          public:
+              typedef store_iterator<LogType> iterator_type;
+              typedef typename LogType::value_type value_type;
+              typedef typename LogType::value_type& reference;
+              typedef typename LogType::value_type* pointer;
+              // typedef int difference_type;
+
+              using difference_type = typename std::iterator<std::random_access_iterator_tag, char>::difference_type;
+
+              store_iterator(LogType *log, offset_type offset) : _log(log), _offset(offset) { 
+
+              }
+
+              reference operator*() { 
+                _log->Peak(_offset, _value);
+                return _value; 
+              }
+
+              pointer operator->() { 
+                _log->Peak(_offset, _value);
+                return &_value; 
+              }
+
+              inline iterator_type& operator++() {++_offset; return *this;}
+              inline iterator_type& operator--() {--_offset; return *this;}
+              inline iterator_type operator++(int) const {iterator_type tmp(_log, *this); ++_offset; return tmp;}
+              inline iterator_type operator--(int) const {iterator_type tmp(_log, *this); --_offset; return tmp;}
+              /* inline Iterator operator+(const Iterator& rhs) {return Iterator(_ptr+rhs.ptr);} */
+              inline difference_type operator-(const iterator_type& rhs) const {return _offset-rhs._offset;}
+              inline iterator_type operator+(difference_type rhs) const {return iterator_type(_log, _offset+rhs);}
+              inline iterator_type operator-(difference_type rhs) const {return iterator_type(_log, _offset-rhs);}
+              friend inline iterator_type operator+(difference_type lhs, const iterator_type& rhs) {return iterator_type(rhs._log, lhs+rhs._offset);}
+              friend inline iterator_type operator-(difference_type lhs, const iterator_type& rhs) {return iterator_type(rhs._log, lhs-rhs._offset);}
+
+
+              inline bool operator==(const iterator_type& rhs) const {return _offset == rhs._offset;}
+              inline bool operator!=(const iterator_type& rhs) const {return _offset != rhs._offset;}
+              inline bool operator>(const iterator_type& rhs) const {return _offset > rhs._offset;}
+              inline bool operator<(const iterator_type& rhs) const {return _offset < rhs._offset;}
+              inline bool operator>=(const iterator_type& rhs) const {return _offset >= rhs._offset;}
+              inline bool operator<=(const iterator_type& rhs) const {return _offset <= rhs._offset;}
+          private:
+              LogType *_log;
+              offset_type _offset;
+
+              char _value;
+        };
+
+        typedef store_iterator<log_type> iterator;
+
+        iterator begin(offset_type offset) {
+          return store_iterator<log_type>(this, offset);
+        }
+
+        iterator end(offset_type end) {
+          return store_iterator<log_type>(this, end);
+        }
 
         offset_type Available () const {
           return _available;
@@ -396,10 +461,10 @@ namespace coypu {
         }
 
       private:
-        PStoreRWStream (const PStoreRWStream &other);
-        PStoreRWStream &operator= (const PStoreRWStream &other);
+        LogRWStream (const LogRWStream &other);
+        LogRWStream &operator= (const LogRWStream &other);
 
-        PStoreScrollWriteBuf <MMapProvider> _writeBuf;
+        LogWriteBuf <MMapProvider> _writeBuf;
 
         typedef ReadCache<MMapProvider, CacheSize>  read_cache_type;
         read_cache_type _readCache;
@@ -436,6 +501,13 @@ namespace coypu {
         bool Pop (char *dest, uint64_t size) {
           if (_stream->Pop(_curOffset, dest, size)) {
             _curOffset += size;
+            return true;
+          }
+          return false;
+        }
+
+        bool Pop (char *dest, typename S::offset_type offset, uint64_t size) {
+          if (_stream->Pop(offset, dest, size)) {
             return true;
           }
           return false;
@@ -480,12 +552,14 @@ namespace coypu {
     };
 
     template <typename S>
-    class MultiPositionedStream {
+    class MultiPositionedStreamLog {
       public:
-        MultiPositionedStream (const std::shared_ptr<S> &stream) : _stream(stream) {
+        typedef typename S::offset_type offset_type;
+
+        MultiPositionedStreamLog (const std::shared_ptr<S> &stream) : _stream(stream) {
         }
 
-        virtual ~MultiPositionedStream () {
+        virtual ~MultiPositionedStreamLog () {
         }
 
         int Push (const char *data, typename S::offset_type len) {
@@ -495,16 +569,12 @@ namespace coypu {
         }
 
         int Register (int fd) {
-            // DTRACE_PROBE1(coypu, "multi-register", fd);
-
             _curOffsets.resize(fd+1, UINT64_MAX);
             _curOffsets[fd] = 0;
             return 0;
         }
 
         int Unregister (int fd) {
-            // DTRACE_PROBE1(coypu, "multi-unregister", fd);
-
             if (fd >= _curOffsets.size()) return -3;
             _curOffsets[fd] = UINT64_MAX;
             return 0;
@@ -512,8 +582,6 @@ namespace coypu {
 
         int Writev (typename S::offset_type  size,
                     int fd, std::function <int(int, const struct iovec *, int)> &cb) {
-          // DTRACE_PROBE2(coypu, "multi-Writev", size, fd);
-
           if (fd >= _curOffsets.size()) return -3;
           if (_curOffsets[fd] == UINT64_MAX) return -4; //unregistered
           int r = _stream->Writev(_curOffsets[fd], size, fd, cb);
@@ -531,6 +599,16 @@ namespace coypu {
           return _stream->Available() - _curOffsets[fd];
         }
 
+        // copy
+        bool Pop (char *dest, typename S::offset_type  offset, typename S::offset_type size) {
+          if (_stream->Available() < offset) return false;
+          if (_stream->Available()+size < offset) return false;
+          if (_stream->Pop(offset, dest, size)) {
+            return true;
+          }
+          return false;
+        }
+
         bool IsEmpty (int fd) const {
           if (fd >= _curOffsets.size()) return true;
           if (_curOffsets[fd] == UINT64_MAX) return true; //unregistered
@@ -543,18 +621,23 @@ namespace coypu {
           return _stream->Free();
         }
 
+        typename S::iterator begin(typename S::offset_type offset) {
+          return _stream->begin(offset);
+        }
+
+        typename S::iterator end(typename S::offset_type end) {
+          return _stream->end(end);
+        }
+
       private:
-        MultiPositionedStream (const MultiPositionedStream &other);
-        MultiPositionedStream &operator=(const MultiPositionedStream &other);
+        MultiPositionedStreamLog (const MultiPositionedStreamLog &other);
+        MultiPositionedStreamLog &operator=(const MultiPositionedStreamLog &other);
 
         std::shared_ptr<S> _stream;
         std::vector<typename S::offset_type> _curOffsets;
     };
 
-        // static_assert(sizeof(PageHeaderS) == 8, "Page Header Size Check");
-        // struct PageHeaderS {
-        //     uint64_t _used;    // 0
-        // } __attribute__ ((packed, aligned(8)));
+
   }
 }
 
