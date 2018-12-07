@@ -69,8 +69,8 @@ struct CoinCache {
 	CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
 		_seconds(0), _milliseconds(0), _high24(0), _low24(0),
 		_vol24(0), _open(0), _last(0) {
-			::memset(_key, 0, sizeof(_key));
-		}
+	  ::memset(_key, 0, sizeof(_key));
+	}
 
 } __attribute__ ((packed, aligned(64)));
 
@@ -587,6 +587,10 @@ int main(int argc, char **argv)
 								std::string side = (*b)[0].get<std::string>();
 								std::string px = (*b)[1].get<std::string>();
 								std::string qty = (*b)[2].get<std::string>();
+
+								std::cout << product << ":" << side << "," << px << "," << qty << std::endl;
+
+								// update side book for px and qty
 							}
 						} else if (type == "error") {
 							std::stringstream s;
@@ -652,6 +656,9 @@ int main(int argc, char **argv)
 							if (!result["sequence"].is_null()) {
 								cc._origseqno = result["sequence"].get<uint64_t>();
 							}
+							
+							//double px = atof(result["price"].get_ref<std::string &>().c_str());
+							
 
 							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
 							coinCache->Push(cc);

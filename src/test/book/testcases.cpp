@@ -1,0 +1,56 @@
+/*
+ * Created on Mon Sep 24 2018
+ * 
+ * Copyright (c) 2018 Aaron Wald
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <fcntl.h>
+#include <unistd.h>
+#include "gtest/gtest.h"
+#include "book/level.h"
+
+#include <string>
+#include <sys/uio.h>
+
+using namespace coypu::book;
+
+struct Level {
+  uint64_t px;
+  uint64_t qty;
+  char c;
+  Level *next, *prev;
+
+  Level (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
+  }
+
+} __attribute__((packed, aligned(64))) ;
+
+TEST(BookTest, Test1) 
+{
+  LevelAllocator<Level, 4096> la;
+  Level *l1 = la.Allocate(1,1);
+  ASSERT_NE(l1, nullptr);
+  ASSERT_EQ(l1->px, 1);
+  ASSERT_EQ(l1->qty, 1);
+  Level *l2 = la.Allocate(2,2);
+  ASSERT_NE(l2, nullptr);
+  ASSERT_EQ(l2->px, 2);
+  ASSERT_EQ(l2->qty, 2);
+
+
+  // free go to free pool (just linked list on the book)
+
+  // to free we need to free up the pages
+}
