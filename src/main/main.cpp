@@ -580,8 +580,8 @@ int main(int argc, char **argv)
 		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
-					  static LevelAllocator<CoinLevel, 4096*16> la;
-					  static CLevelBook<CoinLevel> book;
+			static LevelAllocator<CoinLevel, 4096*16> la;
+			static CLevelBook<CoinLevel> book ([] (const CoinLevel *lhs, const CoinLevel *rhs) -> bool { return lhs->px < rhs->px; });
 
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();

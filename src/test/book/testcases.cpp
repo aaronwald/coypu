@@ -27,19 +27,15 @@
 
 using namespace coypu::book;
 
-struct Level {
+struct BookLevel {
   uint64_t px;
   uint64_t qty;
-   Level *next, *prev;
+   BookLevel *next, *prev;
 
-  Level (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
+  BookLevel (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
   }
   
-  Level () : px(0), qty(0), next(nullptr), prev(nullptr) {
-  }
-
-  bool operator()(const Level *lhs, const Level *rhs) const {
-	 return lhs->px < rhs->px;
+  BookLevel () : px(0), qty(0), next(nullptr), prev(nullptr) {
   }
 } __attribute__((packed, aligned(64))) ;
 
@@ -47,24 +43,24 @@ struct Level {
 TEST(BookTest, Test1) 
 {
   int outindex = -1;
-  LevelAllocator<Level, 4096> la;
-  Level *l1 = la.Allocate(1,1);
+  LevelAllocator<BookLevel, 4096> la;
+  BookLevel *l1 = la.Allocate(1,1);
   ASSERT_NE(l1, nullptr);
   ASSERT_EQ(l1->px, 1);
   ASSERT_EQ(l1->qty, 1);
-  Level *l2 = la.Allocate(2,2);
+  BookLevel *l2 = la.Allocate(2,2);
   ASSERT_NE(l2, nullptr);
   ASSERT_EQ(l2->px, 2);
   ASSERT_EQ(l2->qty, 2);
   
   // should always work at bottom of vector? since cheaper to move down.
-  CLevelBook<Level> b;
+  CLevelBook<BookLevel> b ([] (const BookLevel *lhs, const BookLevel *rhs) -> bool { return lhs->px < rhs->px; });
   b.Insert(l1, outindex);
   ASSERT_EQ(outindex, 0);
   b.Insert(l2, outindex);
   ASSERT_EQ(outindex, 1);
 
-  Level out;
+  BookLevel out;
   ASSERT_TRUE(b.GetLevel(0, out));
   ASSERT_EQ(out.px, 2);
   ASSERT_TRUE(b.GetLevel(1, out));
@@ -84,14 +80,14 @@ TEST(BookTest, Test1)
 
 TEST(BookTest, Test2) 
 {
-  LevelAllocator<Level, 4096> la;
-  Level *l1 = la.Allocate(1,1);
-  Level *l2 = la.Allocate(2,2);
-  Level *l3 = la.Allocate(3,3);
+  LevelAllocator<BookLevel, 4096> la;
+  BookLevel *l1 = la.Allocate(1,1);
+  BookLevel *l2 = la.Allocate(2,2);
+  BookLevel *l3 = la.Allocate(3,3);
 
   // should always work at bottom of vector? since cheaper to move down.
   int outindex = -1;
-  CLevelBook<Level> b;
+  CLevelBook<BookLevel> b ([] (const BookLevel *lhs, const BookLevel *rhs) -> bool { return lhs->px < rhs->px; });
   b.Insert(l1, outindex);
   ASSERT_EQ(outindex, 0);
   b.Insert(l2, outindex);
@@ -99,7 +95,7 @@ TEST(BookTest, Test2)
   b.Insert(l3, outindex);
   ASSERT_EQ(outindex, 2);
 
-  Level out;
+  BookLevel out;
   ASSERT_NE(b.Erase(2, outindex), nullptr);
   ASSERT_EQ(outindex, 1);
   ASSERT_TRUE(b.GetLevel(0, out));
@@ -121,21 +117,22 @@ TEST(BookTest, Test2)
 
 }
 
-TEST(BookTest, UpdateTest1) 
+// Bid test - Highest at bottom of array
+TEST(BookTest, UpdateBidTest1) 
 {
   int outindex = -1;
-  LevelAllocator<Level, 4096> la;
-  Level *l1 = la.Allocate(1,1);
+  LevelAllocator<BookLevel, 4096> la;
+  BookLevel *l1 = la.Allocate(1,1);
   ASSERT_NE(l1, nullptr);
   ASSERT_EQ(l1->px, 1);
   ASSERT_EQ(l1->qty, 1);
-  Level *l2 = la.Allocate(2,2);
+  BookLevel *l2 = la.Allocate(2,2);
   ASSERT_NE(l2, nullptr);
   ASSERT_EQ(l2->px, 2);
   ASSERT_EQ(l2->qty, 2);
   
   // should always work at bottom of vector? since cheaper to move down.
-  CLevelBook<Level> b;
+  CLevelFwdBook<BookLevel> b ([] (const BookLevel *lhs, const BookLevel *rhs) -> bool { return lhs->px < rhs->px; });
   b.Insert(l1, outindex);
   ASSERT_EQ(outindex, 0);
   b.Insert(l2, outindex);
@@ -144,12 +141,55 @@ TEST(BookTest, UpdateTest1)
   b.Update(2, 10, outindex);
   ASSERT_EQ(outindex, 1);
 
-  Level out;
+  BookLevel out;
+  ASSERT_TRUE(b.GetLevel(1, out));
+  ASSERT_EQ(out.px, 2);
+  ASSERT_EQ(out.qty, 10);
+  ASSERT_TRUE(b.GetLevel(0, out));
+  ASSERT_EQ(out.px, 1);
+  ASSERT_FALSE(b.GetLevel(2, out));
+  
+  ASSERT_NE(b.Erase(2, outindex), nullptr);
+  ASSERT_EQ(outindex, 1);
+  ASSERT_TRUE(b.GetLevel(0, out));
+  ASSERT_EQ(out.px, 1);
+  ASSERT_FALSE(b.GetLevel(1, out));
+  ASSERT_FALSE(b.GetLevel(2, out));
+  // free go to free pool (just linked list on the book)
+
+}
+
+// Bid test - Highest at top of array
+TEST(BookTest, UpdateAskTest1) 
+{
+  int outindex = -1;
+  LevelAllocator<BookLevel, 4096> la;
+  BookLevel *l1 = la.Allocate(1,1);
+  ASSERT_NE(l1, nullptr);
+  ASSERT_EQ(l1->px, 1);
+  ASSERT_EQ(l1->qty, 1);
+  BookLevel *l2 = la.Allocate(2,2);
+  ASSERT_NE(l2, nullptr);
+  ASSERT_EQ(l2->px, 2);
+  ASSERT_EQ(l2->qty, 2);
+  
+  // flip comparator so highest at top and lowest at bottom (so copies are faster at end)
+  CLevelFwdBook<BookLevel> b ([] (const BookLevel *lhs, const BookLevel *rhs) -> bool { return lhs->px > rhs->px; });
+  b.Insert(l1, outindex);
+  ASSERT_EQ(outindex, 0);
+  b.Insert(l2, outindex);
+  ASSERT_EQ(outindex, 0);
+
+  b.Update(2, 10, outindex);
+  ASSERT_EQ(outindex, 0);
+
+  BookLevel out;
+  ASSERT_TRUE(b.GetLevel(1, out));
+  ASSERT_EQ(out.px, 1);
+  ASSERT_EQ(out.qty, 1);
   ASSERT_TRUE(b.GetLevel(0, out));
   ASSERT_EQ(out.px, 2);
   ASSERT_EQ(out.qty, 10);
-  ASSERT_TRUE(b.GetLevel(1, out));
-  ASSERT_EQ(out.px, 1);
   ASSERT_FALSE(b.GetLevel(2, out));
   
   ASSERT_NE(b.Erase(2, outindex), nullptr);

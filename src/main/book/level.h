@@ -6,10 +6,10 @@
 #include <memory>
 #include <vector>
 #include <iostream>
+#include <functional>
 
 namespace coypu {
   namespace book {
-
 	 template <typename T, uint32_t PageSize>
 		class LevelAllocator {
 	 public:
@@ -47,14 +47,15 @@ namespace coypu {
 	 template <typename T>
 		class CLevelBook {
 	 public:
-		CLevelBook () {
+		typedef std::function<bool(T *lhs, T *rhs)> comparator_type;
+		CLevelBook (comparator_type cmp) : _cmpf(cmp) {
 		}
 
 		virtual ~CLevelBook () {
 		}
 
 		bool Insert (T *t, int &index) {
-		  auto lb =  std::lower_bound(v.rbegin(), v.rend(), t, _cmp);
+		  auto lb =  std::lower_bound(v.rbegin(), v.rend(), t, _cmpf);
  		  index = lb - v.rbegin();
 		  v.insert(lb.base(), t);
 
@@ -74,7 +75,7 @@ namespace coypu {
 		  T t;
 		  t.px = px;
 		  // lower bound is strictly lower so value should be equal to or not found
-		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmp);
+		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmpf);
 		  if (lb != v.rend() && px == (*lb)->px) {
 			 index = (lb.base()-1) - v.begin();
 			 v.erase(--lb.base());
@@ -87,7 +88,7 @@ namespace coypu {
 		  T t;
 		  t.px = px;
 		  // lower bound is strictly lower so value should be equal to or not found
-		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmp);
+		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmpf);
 		  if (lb != v.rend() && px == (*lb)->px) {
 			 index = lb - v.rbegin();
 			 (*lb)->qty = qty;
@@ -113,8 +114,112 @@ namespace coypu {
 		CLevelBook (const CLevelBook &other) = delete;
 		CLevelBook &operator= (const CLevelBook &other) = delete;
   
-		T _cmp;
+		comparator_type _cmpf;
 	 };
+
+	 // Fwd book we can flip ordering with the comparator for lower bound
+	 template <typename T>
+		class CLevelFwdBook {
+	 public:
+		typedef std::function<bool(T *lhs, T *rhs)> comparator_type;
+		CLevelFwdBook (comparator_type cmp) : _cmpf(cmp) {
+		}
+
+		virtual ~CLevelFwdBook () {
+		}
+
+		// O(1)
+		bool GetLevel (int level,  T &t) const {
+		  if (level < v.size()) {
+			 t = *v[level];
+			 return true;
+		  }
+		  return false;
+		}
+
+		bool GetFront (T &t) const {
+		  if (!v.empty()) {
+			 t = v.front();
+			 return true;
+		  }
+		  return false;
+		}
+
+		bool GetBack (T &t) const {
+		  if (!v.empty()) {
+			 t = v.back();
+			 return true;
+		  }
+		  return false;
+		}
+
+		// O(log n) - binary search
+		bool Insert (T *t, int &index) {
+		  auto lb =  std::lower_bound(v.begin(), v.end(), t, _cmpf);
+ 		  index = lb - v.begin();
+		  v.insert(lb, t);
+
+		  return true;
+		}
+
+		// O(log n) - binary search
+		T * Erase (uint64_t px, int &index) {
+		  index = -1;
+		  T t;
+		  t.px = px;
+		  // lower bound is strictly lower so value should be equal to or not found
+		  auto lb = std::lower_bound(v.begin(), v.end(), &t, _cmpf);
+		  if (lb != v.end() && px == (*lb)->px) {
+			 index = lb - v.begin();
+			 v.erase(lb);
+			 return *lb;
+		  }
+		  return nullptr;
+		}
+
+		// O(log n) - binary search
+		bool Update (uint64_t px, uint64_t qty, int &index) {
+		  T t;
+		  t.px = px;
+		  auto lb = std::lower_bound(v.begin(), v.end(), &t, _cmpf);
+		  if (lb != v.end() && px == (*lb)->px) {
+			 index = lb - v.begin();
+			 (*lb)->qty = qty;
+			 return true;
+		  }
+		  return false;
+		}
+
+		void Dump () const {
+		  for (auto b = v.begin(); b != v.end(); ++b) {
+			 std::cout << "\t" << (*b)->qty << "\t" << (*b)->px << std::endl;
+		  }
+		}
+
+		void Dump (int levels) const {
+		  auto b = v.begin();
+		  auto e = v.end();
+		  for (int i = 0; i < levels && b != e; ++b) {
+			 std::cout << "\t" << (*v)->qty << "\t" << (*v)->px << std::endl;		
+		  }
+		}
+
+		void RDump (int levels) const {
+		  auto b = v.rbegin();
+		  auto e = v.rend();
+		  for (int i = 0; i < levels && b != e; ++b) {
+			 std::cout << "\t" << (*v)->qty << "\t" << (*v)->px << std::endl;		
+		  }
+		}
+
+	 private:
+		std::vector <T *> v;
+		CLevelFwdBook (const CLevelFwdBook &other) = delete;
+		CLevelFwdBook &operator= (const CLevelFwdBook &other) = delete;
+  
+		comparator_type _cmpf;
+	 };
+
 
 	 template <typename T, uint32_t PageSize>
 		class CBook {
