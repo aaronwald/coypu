@@ -145,7 +145,8 @@ namespace coypu {
 		}
 
 		bool EraseBid (uint64_t px) {
-		  T *t = _bids.Erase(px);
+		  int oi = -1;
+		  T *t = _bids.Erase(px, oi);
 		  if (t) {
 			 Free(t);
 			 return true;
@@ -154,7 +155,8 @@ namespace coypu {
 		}
 
 		bool EraseAsk (uint64_t px) {
-		  T *t = _asks.Erase(px);
+		  int oi = -1;
+		  T *t = _asks.Erase(px, oi);
 		  if (t) {
 			 Free(t);
 			 return true;
