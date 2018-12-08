@@ -46,6 +46,7 @@ struct Level {
 
 TEST(BookTest, Test1) 
 {
+  int outindex = -1;
   LevelAllocator<Level, 4096> la;
   Level *l1 = la.Allocate(1,1);
   ASSERT_NE(l1, nullptr);
@@ -58,8 +59,10 @@ TEST(BookTest, Test1)
   
   // should always work at bottom of vector? since cheaper to move down.
   CLevelBook<Level> b;
-  b.Insert(l1);
-  b.Insert(l2);
+  b.Insert(l1, outindex);
+  ASSERT_EQ(outindex, 0);
+  b.Insert(l2, outindex);
+  ASSERT_EQ(outindex, 1);
 
   Level out;
   ASSERT_TRUE(b.GetLevel(0, out));
@@ -68,7 +71,8 @@ TEST(BookTest, Test1)
   ASSERT_EQ(out.px, 1);
   ASSERT_FALSE(b.GetLevel(2, out));
   
-  ASSERT_NE(b.Erase(2), nullptr);
+  ASSERT_NE(b.Erase(2, outindex), nullptr);
+  ASSERT_EQ(outindex, 0);
   ASSERT_TRUE(b.GetLevel(0, out));
   ASSERT_EQ(out.px, 1);
   ASSERT_FALSE(b.GetLevel(1, out));
@@ -85,27 +89,75 @@ TEST(BookTest, Test2)
   Level *l2 = la.Allocate(2,2);
   Level *l3 = la.Allocate(3,3);
 
-  
   // should always work at bottom of vector? since cheaper to move down.
+  int outindex = -1;
   CLevelBook<Level> b;
-  b.Insert(l1);
-  b.Insert(l2);
-  b.Insert(l3);
+  b.Insert(l1, outindex);
+  ASSERT_EQ(outindex, 0);
+  b.Insert(l2, outindex);
+  ASSERT_EQ(outindex, 1);
+  b.Insert(l3, outindex);
+  ASSERT_EQ(outindex, 2);
 
   Level out;
-  ASSERT_NE(b.Erase(2), nullptr);
+  ASSERT_NE(b.Erase(2, outindex), nullptr);
+  ASSERT_EQ(outindex, 1);
   ASSERT_TRUE(b.GetLevel(0, out));
   ASSERT_EQ(out.px, 3);
   ASSERT_TRUE(b.GetLevel(1, out));
   ASSERT_EQ(out.px, 1);
   ASSERT_FALSE(b.GetLevel(2, out));
 
-  ASSERT_NE(b.Erase(1), nullptr);
+  ASSERT_NE(b.Erase(1, outindex), nullptr);
+  ASSERT_EQ(outindex, 1);
+  ASSERT_EQ(b.Erase(1, outindex), nullptr);
+  ASSERT_EQ(outindex, -1);
   ASSERT_TRUE(b.GetLevel(0, out));
   ASSERT_EQ(out.px, 3);
   ASSERT_FALSE(b.GetLevel(1, out));
   ASSERT_FALSE(b.GetLevel(2, out));
 
+  // free go to free pool (just linked list on the book)
+
+}
+
+TEST(BookTest, UpdateTest1) 
+{
+  int outindex = -1;
+  LevelAllocator<Level, 4096> la;
+  Level *l1 = la.Allocate(1,1);
+  ASSERT_NE(l1, nullptr);
+  ASSERT_EQ(l1->px, 1);
+  ASSERT_EQ(l1->qty, 1);
+  Level *l2 = la.Allocate(2,2);
+  ASSERT_NE(l2, nullptr);
+  ASSERT_EQ(l2->px, 2);
+  ASSERT_EQ(l2->qty, 2);
+  
+  // should always work at bottom of vector? since cheaper to move down.
+  CLevelBook<Level> b;
+  b.Insert(l1, outindex);
+  ASSERT_EQ(outindex, 0);
+  b.Insert(l2, outindex);
+  ASSERT_EQ(outindex, 1);
+
+  b.Update(2, 10, outindex);
+  ASSERT_EQ(outindex, 1);
+
+  Level out;
+  ASSERT_TRUE(b.GetLevel(0, out));
+  ASSERT_EQ(out.px, 2);
+  ASSERT_EQ(out.qty, 10);
+  ASSERT_TRUE(b.GetLevel(1, out));
+  ASSERT_EQ(out.px, 1);
+  ASSERT_FALSE(b.GetLevel(2, out));
+  
+  ASSERT_NE(b.Erase(2, outindex), nullptr);
+  ASSERT_EQ(outindex, 0);
+  ASSERT_TRUE(b.GetLevel(0, out));
+  ASSERT_EQ(out.px, 1);
+  ASSERT_FALSE(b.GetLevel(1, out));
+  ASSERT_FALSE(b.GetLevel(2, out));
   // free go to free pool (just linked list on the book)
 
 }

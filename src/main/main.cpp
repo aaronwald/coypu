@@ -619,7 +619,8 @@ int main(int argc, char **argv)
 
 								  uint64_t ipx = atof(px.c_str()) * 100000000;
 								  uint64_t iqty = atof(qty.c_str()) * 100000000;
-								  book.Insert(la.Allocate(ipx, iqty));
+								  int outindex = -1;
+								  book.Insert(la.Allocate(ipx, iqty), outindex);
 							  }
 							}
 
@@ -640,14 +641,15 @@ int main(int argc, char **argv)
 
 								  uint64_t ipx = atof(px.c_str()) * 100000000;
 								  uint64_t iqty = atof(qty.c_str()) * 100000000;
+								  int outindex = -1;
 								  if (iqty == 0) {
 									 // TODO Fix leak
-									 CoinLevel *cl = book.Erase(ipx);
+									 CoinLevel *cl = book.Erase(ipx, outindex);
 									 if (cl) {
 									 }
 								  } else {
-									 if (!book.Update(ipx, iqty)) {
-										book.Insert(la.Allocate(ipx, iqty));
+									 if (!book.Update(ipx, iqty, outindex)) {
+										book.Insert(la.Allocate(ipx, iqty), outindex);
 									 }
 								  }
 

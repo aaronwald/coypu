@@ -53,9 +53,11 @@ namespace coypu {
 		virtual ~CLevelBook () {
 		}
 
-		bool Insert (T *t) {
+		bool Insert (T *t, int &index) {
 		  auto lb =  std::lower_bound(v.rbegin(), v.rend(), t, _cmp);
+ 		  index = lb - v.rbegin();
 		  v.insert(lb.base(), t);
+
 		  return true;
 		}
 
@@ -67,24 +69,27 @@ namespace coypu {
 		  return false;
 		}
 
-		T * Erase (uint64_t px) {
+		T * Erase (uint64_t px, int &index) {
+		  index = -1;
 		  T t;
 		  t.px = px;
 		  // lower bound is strictly lower so value should be equal to or not found
 		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmp);
 		  if (lb != v.rend() && px == (*lb)->px) {
+			 index = (lb.base()-1) - v.begin();
 			 v.erase(--lb.base());
 			 return *lb;
 		  }
 		  return nullptr;
 		}
 
-		bool Update (uint64_t px, uint64_t qty) {
+		bool Update (uint64_t px, uint64_t qty, int &index) {
 		  T t;
 		  t.px = px;
 		  // lower bound is strictly lower so value should be equal to or not found
 		  auto lb = std::lower_bound(v.rbegin(), v.rend(), &t, _cmp);
 		  if (lb != v.rend() && px == (*lb)->px) {
+			 index = lb - v.rbegin();
 			 (*lb)->qty = qty;
 			 return true;
 		  }
