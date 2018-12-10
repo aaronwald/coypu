@@ -7,6 +7,7 @@
 #include <vector>
 #include <iostream>
 #include <functional>
+#include <algorithm>
 
 namespace coypu
 {
@@ -236,13 +237,20 @@ public:
 		}
 	}
 
-	void RDump(int levels = 0) const
+	void RDump(int levels = 0, bool reverse=false) const
 	{
-		auto b = v.rbegin();
-		auto e = v.rend();
-		for (int i = 0; (levels == 0 || i < levels) && b != e; ++b, ++i)
-		{
-			std::cout << "\t" << (*b)->qty << "\t" << (*b)->px << std::endl;
+		if (reverse) {
+			int count = std::min((size_t)levels, v.size());
+			for (int i = v.size()-count-1; count >= 0; ++i, --count) {
+				std::cout << "\t" << v[i]->qty << "\t" << v[i]->px << std::endl;
+			}
+		} else {
+			auto b = v.rbegin();
+			auto e = v.rend();
+			for (int i = 0; (levels == 0 || i < levels) && b != e; ++b, ++i)
+			{
+				std::cout << "\t" << (*b)->qty << "\t" << (*b)->px << std::endl;
+			}
 		}
 	}
 
@@ -297,8 +305,8 @@ public:
 			_bids.RDump(levels);
 	}
 
-	void RDumpAsk (int levels = 0) {
-			_asks.RDump(levels);
+	void RDumpAsk (int levels = 0, bool reverse = false) {
+			_asks.RDump(levels, reverse);
 	}
 
 	bool EraseBid(uint64_t px, int &index)

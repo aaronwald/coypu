@@ -16,7 +16,7 @@
 
 #include <iomanip>
 #include <sstream>
-#include <nlohmann/json.hpp>
+// #include <nlohmann/json.hpp>
 
 
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -45,7 +45,7 @@
 #include "rapidjson/stringbuffer.h"
 
 using namespace rapidjson;
-using json = nlohmann::json;
+// using json = nlohmann::json;
 
 using namespace coypu;
 using namespace coypu::backtrace;
@@ -59,96 +59,36 @@ using namespace coypu::store;
 using namespace coypu::cache;
 using namespace coypu::book;
 
-class gdax_sax : public json::json_sax_t
- {
-   public:
-     bool null() override
-     {
-         return true;
-     }
- 
-     bool boolean(bool val) override
-     {
-         return true;
-     }
- 
-     bool number_integer(number_integer_t val) override
-     {
-         return true;
-     }
- 
-     bool number_unsigned(number_unsigned_t val) override
-     {
-         return true;
-     }
- 
-     bool number_float(number_float_t val, const string_t& s) override
-     {
-         return true;
-     }
- 
-     bool string(string_t& val) override
-     {
-         return true;
-     }
- 
-     bool start_object(std::size_t elements) override
-     {
-         return true;
-     }
- 
-     bool end_object() override
-     {
-         return true;
-     }
- 
-     bool start_array(std::size_t elements) override
-     {
-         return true;
-     }
- 
-     bool end_array() override
-     {
-         return true;
-     }
- 
-     bool key(string_t& val) override
-     {
-         return true;
-     }
- 
-     bool parse_error(std::size_t position, const std::string& last_token, const json::exception& ex) override
-     {
-         return false;
-     }
- };
+struct CoinLevel
+{
+	uint64_t px;
+	uint64_t qty;
+	CoinLevel *next, *prev;
 
-struct CoinLevel {
-  uint64_t px;
-  uint64_t qty;
-  CoinLevel *next, *prev;
+	CoinLevel(uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr)
+	{
+	}
 
-  CoinLevel (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
-  }
+	void Set(uint64_t px, uint64_t qty)
+	{
+		this->px = px;
+		this->qty = qty;
+	}
 
-  void Set (uint64_t px, uint64_t qty) {
-	  this->px = px;
-	  this->qty = qty;
-  }
+	CoinLevel() : px(UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr)
+	{
+	}
 
-  CoinLevel () : px (UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr) {
-  }
+	bool operator()(const CoinLevel &lhs, const CoinLevel &rhs) const
+	{
+		return lhs.px < rhs.px;
+	}
 
-  bool operator()(const CoinLevel &lhs, const CoinLevel &rhs) const {
-	 return lhs.px < rhs.px;
-  }
-
-  bool operator()(const CoinLevel *lhs, const CoinLevel *rhs) const {
-	 return lhs->px < rhs->px;
-  }
-} __attribute__((packed, aligned(64))) ;
-
-
+	bool operator()(const CoinLevel *lhs, const CoinLevel *rhs) const
+	{
+		return lhs->px < rhs->px;
+	}
+} __attribute__((packed, aligned(64)));
 
 struct CoinCache {
 	char _key[64]; // keep product first. if first byte is null, then this is treated as a blank record
@@ -593,7 +533,7 @@ int main(int argc, char **argv)
 			auto wsManager = wWsManager.lock();
 			if (wsManager) {
 				std::vector<std::string> pairs;
-				//				pairs.push_back("BTC-USD");
+				pairs.push_back("BTC-USD");
 				pairs.push_back("ETH-USD");
 				//pairs.push_back("ETH-EUR");
 				//pairs.push_back("ETH-BTC");
@@ -681,7 +621,6 @@ int main(int argc, char **argv)
 					// sad copying but nice json library
 					if(stream->Pop(jsonDoc, offset, len)) {
 						jsonDoc[len] = 0;
-						gdax_sax sax;
 						Document jd;
 
 						start = __rdtscp(&junk);
@@ -701,17 +640,25 @@ int main(int argc, char **argv)
 							const char *product = jd["product_id"].GetString();
 
 							const Value& bids = jd["bids"];
-							if (!strcmp(product, "ETH-USD")) {
+							const Value& asks = jd["asks"];
+
+							if (!strcmp(product, "BTC-USD")) {
 								for (SizeType i = 0; i < bids.Size(); ++i) {
 									const char * px = bids[i][0].GetString();
 									const char * qty = bids[i][0].GetString();
-									// std::string px = (*b)[0].get<std::string>();
-									// std::string qty = (*b)[1].get<std::string>();
-
 									uint64_t ipx = atof(px) * 100000000;
 									uint64_t iqty = atof(qty) * 100000000;
 									int outindex = -1;
 									book.InsertBid(ipx, iqty, outindex);
+								}
+
+								for (SizeType i = 0; i < asks.Size(); ++i) {
+									const char * px = asks[i][0].GetString();
+									const char * qty = asks[i][0].GetString();
+									uint64_t ipx = atof(px) * 100000000;
+									uint64_t iqty = atof(qty) * 100000000;
+									int outindex = -1;
+									book.InsertAsk(ipx, iqty, outindex);
 								}
 							}
 
@@ -726,20 +673,33 @@ int main(int argc, char **argv)
 								const char * px = changes[i][1].GetString();
 								const char * qty = changes[i][2].GetString();
 
-								if (!strcmp(product, "ETH-USD") && !strcmp(side, "buy")) {
+								if (!strcmp(product, "BTC-USD")) {
 									uint64_t ipx = atof(px) * 100000000;
 									uint64_t iqty = atof(qty) * 100000000;
 									int outindex = -1;
-									if (iqty == 0) {
-										book.EraseBid(ipx, outindex);
-									} else {
-										if (!book.UpdateBid(ipx, iqty, outindex)) {
-											book.InsertBid(ipx, iqty, outindex);
+
+								 	if(!strcmp(side, "buy")) {
+										if (iqty == 0) {
+											book.EraseBid(ipx, outindex);
+										} else {
+											if (!book.UpdateBid(ipx, iqty, outindex)) {
+												book.InsertBid(ipx, iqty, outindex);
+											}
 										}
-									}
+									 } else {
+										 if (iqty == 0) {
+											book.EraseAsk(ipx, outindex);
+										} else {
+											if (!book.UpdateAsk(ipx, iqty, outindex)) {
+												book.InsertAsk(ipx, iqty, outindex);
+											}
+										}
+									 }
 
 									std::cout << "---" << std::endl;
-									book.RDumpBid(10);			
+									book.RDumpAsk(20, true);			
+									std::cout << "---" << std::endl;
+									book.RDumpBid(20);			
 								}
 							}
 						} else if (!strcmp(type, "error")) {
