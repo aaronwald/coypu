@@ -481,7 +481,7 @@ int main(int argc, char **argv)
 					// Create a websocket message and persist
 					char pub[1024];
 					static int count = 0;
-					size_t len = ::snprintf(pub, 1024, "Foobar [%d]", count++);
+					size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
 					WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 					publish->Push(pub, len);
 					eventMgr->SetWrite(clientfd);
@@ -633,7 +633,6 @@ int main(int argc, char **argv)
 
 							bookMap[product] = std::make_shared<BookType>(); // create string
 							std::shared_ptr<BookType> book = bookMap[product];
-							std::cout << product << std::endl;
 							assert(book);
 
 							const Value& bids = jd["bids"];
@@ -674,7 +673,7 @@ int main(int argc, char **argv)
 								const char * px = changes[i][1].GetString();
 								const char * qty = changes[i][2].GetString();
 
-								if (!strcmp(product, "BTC-USD")) {
+								// if (!strcmp(product, "BTC-USD")) {
 									uint64_t ipx = atof(px) * 100000000;
 									uint64_t iqty = atof(qty) * 100000000;
 									int outindex = -1;
@@ -697,11 +696,21 @@ int main(int argc, char **argv)
 										}
 									 }
 
-									std::cout << std::endl << std::endl;
-									book->RDumpAsk(20, true);			
-									std::cout << "---" << std::endl;
-									book->RDumpBid(20);			
-								}
+									CoinLevel bid,ask;
+									book->BestBid(bid);
+									book->BestAsk(ask);
+									char pub[1024];
+									size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
+																bid.qty, bid.px, ask.px, ask.qty);
+									WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+									publish->Push(pub, len);
+									wsManager->SetWriteAll();
+
+									// std::cout << std::endl << std::endl;
+									// book->RDumpAsk(20, true);			
+									// std::cout << "---" << std::endl;
+									// book->RDumpBid(20);			
+								// }
 							}
 						} else if (!strcmp(type, "error")) {
 							// std::stringstream s;
@@ -783,11 +792,7 @@ int main(int argc, char **argv)
 				}
 			
 
-				char pub[1024];
-				size_t len = ::snprintf(pub, 1024, "Seqno [%zu]", seqNum);
-				WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-				publish->Push(pub, len);
-				wsManager->SetWriteAll();
+				
 			}
 		};
 		

@@ -74,7 +74,8 @@
         "ios": "cpp",
         "__mutex_base": "cpp",
         "forward_list": "cpp",
-        "valarray": "cpp"
+        "valarray": "cpp",
+        "queue": "cpp"
     },
     "python.pythonPath": "${workspaceFolder}/test/test/bin/python3.6"
 }

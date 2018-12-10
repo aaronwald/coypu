@@ -130,6 +130,7 @@ public:
 		}
 	}
 
+
 private:
 	std::vector<T *> v;
 	CLevelBook(const CLevelBook &other) = delete;
@@ -167,7 +168,7 @@ public:
 	{
 		if (!v.empty())
 		{
-			t = v.front();
+			t = *(v.front());
 			return true;
 		}
 		return false;
@@ -177,7 +178,7 @@ public:
 	{
 		if (!v.empty())
 		{
-			t = v.back();
+			t = *(v.back());
 			return true;
 		}
 		return false;
@@ -253,6 +254,7 @@ public:
 			}
 		}
 	}
+
 
 private:
 	std::vector<T *> v;
@@ -331,6 +333,15 @@ public:
 			return true;
 		}
 		return false;
+	}
+
+
+	bool BestBid (T &t) {
+		return _bids.GetBack(t);
+	}
+
+	bool BestAsk (T &t) {
+		return _asks.GetBack(t);
 	}
 
 private:
