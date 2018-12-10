@@ -97,6 +97,18 @@ namespace coypu {
                     }
                 }
 
+                void GetSeqValues (const std::string &name, std::vector<std::string> &out) const {
+                    std::shared_ptr <CoypuConfig> c = GetConfig(name);
+                    if (c) {
+                        std::vector<std::shared_ptr<CoypuConfig>> syms;
+
+                        c->GetSeqValues(syms);
+                        for (auto s : syms) {
+                            out.push_back(s->GetValue());
+                        }
+                    }
+                }
+
                 std::shared_ptr <CoypuConfig> GetConfig (const std::string &name) const {
                     auto i = _maps.find(name);
                     if (i != _maps.end()) {

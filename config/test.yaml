@@ -10,4 +10,18 @@ coypu:
     cpu: 1
 
 do-gdax: true
+
+gdax-symbols: 
+  - BTC-USD
+  - ETH-USD
+  - ETH-EUR
+  - ETH-BTC
+  - ZRX-USD
+  - EOS-USD
+
+gdax-channels:
+  - ticker
+  - heartbeat
+  - level2
+
 do-server-test: false

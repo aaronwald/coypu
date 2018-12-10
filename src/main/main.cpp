@@ -121,6 +121,8 @@ typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
 typedef LogWriteBuf<FileUtil> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
+typedef CBook <CoinLevel, 4096*16>  BookType;
+typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
@@ -511,8 +513,6 @@ int main(int argc, char **argv)
 	bool doCB = false;
 	config->GetValue("do-gdax", doCB);
 	if (doCB) {
-		
-
 		int wsFD = TCPHelper::ConnectStream("ws-feed.pro.coinbase.com", 443);
 
 		if (wsFD < 0) {
@@ -529,27 +529,19 @@ int main(int argc, char **argv)
 		std::function <int(int,const struct iovec*,int)> sslReadCB = std::bind(&OpenSSLManager::ReadvNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
 		std::function <int(int,const struct iovec *,int)> sslWriteCB = std::bind(&OpenSSLManager::WritevNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
 
-		std::function <void(int)> onOpen = [wWsManager] (int fd) {
+		std::vector <std::string> symbolList;
+		std::vector <std::string> channelList;
+		config->GetSeqValues("gdax-symbols", symbolList);
+		config->GetSeqValues("gdax-channels", channelList);
+
+		std::function <void(int)> onOpen = [wWsManager, symbolList, channelList] (int fd) {
 			auto wsManager = wWsManager.lock();
 			if (wsManager) {
-				std::vector<std::string> pairs;
-				pairs.push_back("BTC-USD");
-				pairs.push_back("ETH-USD");
-				//pairs.push_back("ETH-EUR");
-				//pairs.push_back("ETH-BTC");
-				//pairs.push_back("ZRX-USD");
-				//pairs.push_back("EOS-USD");
-
-				std::vector<std::string> channels;
-				channels.push_back("ticker");
-				channels.push_back("heartbeat");
-				channels.push_back("level2");
-
 				std::string subStr;
 				bool queue;
 
-				for (std::string channel : channels) {
-					for (std::string pair : pairs) {
+				for (std::string channel : channelList) {
+					for (std::string pair : symbolList) {
 						subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
 						queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 					}
@@ -599,7 +591,7 @@ int main(int argc, char **argv)
 		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
-			static CBook <CoinLevel, 4096*16> book;
+			static BookMapType bookMap;
 			unsigned int junk= 0;
 			uint64_t start = 0, end = 0;
 
@@ -639,6 +631,11 @@ int main(int argc, char **argv)
 							// asks
 							const char *product = jd["product_id"].GetString();
 
+							bookMap[product] = std::make_shared<BookType>(); // create string
+							std::shared_ptr<BookType> book = bookMap[product];
+							std::cout << product << std::endl;
+							assert(book);
+
 							const Value& bids = jd["bids"];
 							const Value& asks = jd["asks"];
 
@@ -649,7 +646,7 @@ int main(int argc, char **argv)
 									uint64_t ipx = atof(px) * 100000000;
 									uint64_t iqty = atof(qty) * 100000000;
 									int outindex = -1;
-									book.InsertBid(ipx, iqty, outindex);
+									book->InsertBid(ipx, iqty, outindex);
 								}
 
 								for (SizeType i = 0; i < asks.Size(); ++i) {
@@ -658,7 +655,7 @@ int main(int argc, char **argv)
 									uint64_t ipx = atof(px) * 100000000;
 									uint64_t iqty = atof(qty) * 100000000;
 									int outindex = -1;
-									book.InsertAsk(ipx, iqty, outindex);
+									book->InsertAsk(ipx, iqty, outindex);
 								}
 							}
 
@@ -666,6 +663,10 @@ int main(int argc, char **argv)
 							
 						} else if (!strcmp(type, "l2update")) {
 							const char *product = jd["product_id"].GetString();
+							static std::string lookup;
+							lookup = product; // should call look.reserve(8);
+							std::shared_ptr<BookType> book = bookMap[lookup];
+							assert(book);
 
 							const Value& changes = jd["changes"];
 							for (SizeType i = 0; i < changes.Size(); ++i) {
@@ -680,26 +681,26 @@ int main(int argc, char **argv)
 
 								 	if(!strcmp(side, "buy")) {
 										if (iqty == 0) {
-											book.EraseBid(ipx, outindex);
+											book->EraseBid(ipx, outindex);
 										} else {
-											if (!book.UpdateBid(ipx, iqty, outindex)) {
-												book.InsertBid(ipx, iqty, outindex);
+											if (!book->UpdateBid(ipx, iqty, outindex)) {
+												book->InsertBid(ipx, iqty, outindex);
 											}
 										}
 									 } else {
 										 if (iqty == 0) {
-											book.EraseAsk(ipx, outindex);
+											book->EraseAsk(ipx, outindex);
 										} else {
-											if (!book.UpdateAsk(ipx, iqty, outindex)) {
-												book.InsertAsk(ipx, iqty, outindex);
+											if (!book->UpdateAsk(ipx, iqty, outindex)) {
+												book->InsertAsk(ipx, iqty, outindex);
 											}
 										}
 									 }
 
+									std::cout << std::endl << std::endl;
+									book->RDumpAsk(20, true);			
 									std::cout << "---" << std::endl;
-									book.RDumpAsk(20, true);			
-									std::cout << "---" << std::endl;
-									book.RDumpBid(20);			
+									book->RDumpBid(20);			
 								}
 							}
 						} else if (!strcmp(type, "error")) {

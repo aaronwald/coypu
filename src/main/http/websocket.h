@@ -476,8 +476,8 @@ namespace coypu
                                 _logger->error("Unsupported opcode [{0}]", con->_frame._opcode);
                             }
                         } else {
-								  return 0;
-								}
+                            return 0;
+                        }
 
                         return 1;
                     }
@@ -659,7 +659,15 @@ namespace coypu
                                 }
                                 if (r == 0) return false;
 
-                                return true;
+                                // check for another msg
+                                if (con->_state == WS_CS_OPEN) {
+                                    if (con->_stream) {
+                                        return con->_stream->Available() > 0;
+                                    } else {
+                                        return con->_httpBuf->Available() > 0;
+                                    }
+                                }
+                                return false;
                             }
                             break;
 
@@ -667,14 +675,14 @@ namespace coypu
                             {
                                 // nop
                                 con->_state = WS_CS_CLOSED;
-                                return true;
+                                return false;
                             }
                             break;
 
                             case WS_CS_CLOSED:
                             {
                                 // nop
-                                return true;
+                                return false;
                             }
                             break;
 
