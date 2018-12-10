@@ -717,6 +717,14 @@ int main(int argc, char **argv)
 							// s << result;
 							console->error("{0}", jsonDoc);
 						} else if (!strcmp(type, "ticker")) {
+						  const char *product = jd["product_id"].GetString();
+						  const char *vol24 = jd["volume_24h"].GetString();
+						  char pub[1024];
+						  size_t len = ::snprintf(pub, 1024, "Vol %s %s", product, vol24);
+						  WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+						  publish->Push(pub, len);
+						  wsManager->SetWriteAll();
+						  
 							// "best_ask":"6423.6",
 							// "best_bid":"6423.59",
 							// x"high_24h":"6471.00000000",

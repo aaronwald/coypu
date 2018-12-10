@@ -28,12 +28,14 @@ if __name__ == "__main__":
     curses.start_color()
     curses.noecho()
     curses.cbreak()
+    curses.curs_set(0)
     stdscr.keypad(1)
     stdscr.refresh()
     stdscr.nodelay(1)
 
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
 
     last_y = 0
     products = {}
@@ -48,10 +50,18 @@ if __name__ == "__main__":
             doc = ws_queue.get(False)
             if doc:
                 l = doc.split(' ')
+                if l[0] == "Vol":
+                    product = l[1]
+                    if product not in products:
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-' }
+                        last_y = last_y + 1
+                    products[product]['vol'] = l[2]
+
+
                 if l[0] == "Tick":
                     product = l[1]
                     if product not in products:
-                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0 }
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-' }
                         last_y = last_y + 1
                     y = products[product]['y']
                     last_bid = products[product]['last_bid']
@@ -65,28 +75,35 @@ if __name__ == "__main__":
                         ask_px = float(int(l[4]))/100000000.0
                         ask_qty = float(int(l[5]))/100000000.0
                     
-                        f = "%4.8f" % bid_qty
+                        f = "{:12.4f}".format(bid_qty)
                         stdscr.addstr(y, 15, f)
 
-                        f = "%6.2f" % bid_px
-                        if bid_px >= last_bid:
-                            stdscr.addstr(y, 30, f, curses.color_pair(1))
-                        else:
+                        f = "{:12.6f}".format(bid_px)
+                        if bid_px > last_bid:
                             stdscr.addstr(y, 30, f, curses.color_pair(2))
-
-                        f = "%6.2f" % ask_px
-                        if ask_px >= last_ask:
-                            stdscr.addstr(y, 42, f, curses.color_pair(1))
+                        elif bid_px == last_bid:
+                            stdscr.addstr(y, 30, f, curses.color_pair(3))
                         else:
-                            stdscr.addstr(y, 42, f, curses.color_pair(2))
+                            stdscr.addstr(y, 30, f, curses.color_pair(1))
 
-                        f = "%4.8f" % ask_qty
-                        stdscr.addstr(y, 55, f)
+                        f = "x {:12.6f}".format(ask_px)
+                        if ask_px < last_ask:
+                            stdscr.addstr(y, 43, f, curses.color_pair(1))
+                        elif ask_px == last_ask:
+                            stdscr.addstr(y, 43, f, curses.color_pair(3))
+                        else:
+                            stdscr.addstr(y, 43, f, curses.color_pair(2))
+
+                        f = "{:12.4f}".format(ask_qty)
+                        stdscr.addstr(y, 60, f)
+
+                        vol = products[product]['vol']
+                        stdscr.addstr(y, 80, vol)
 
                         products[product]['last_bid'] = bid_px
                         products[product]['last_ask'] = ask_px
                     except Exception as e:
-                        stdscr.addsr(20, 0, str(e))
+                        stdscr.addstr(20, 0, str(e))
 
             stdscr.refresh()
 
