@@ -461,7 +461,6 @@ int main(int argc, char **argv)
 			};
 			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
 
-
 			wsManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, nullptr, nullptr, publish);	
 			eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 
@@ -546,12 +545,6 @@ int main(int argc, char **argv)
 						queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 					}
 				}
-
-				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"heartbeat\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
-
-				// subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"level2\", \"product_ids\": [\"BTC-USD\", \"ETH-USD\"]}]}";
-				// queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 			}
 		};
 
@@ -601,11 +594,10 @@ int main(int argc, char **argv)
 			auto coinCache = wCoinCache.lock();
 			if (publish && wsManager && stream  && coinCache) {
 				// std::cout << stream->Available() << std::endl;
-				if (!(seqNum % 100)) {
+				if (!(seqNum % 1000)) {
 					std::stringstream ss;
 					ss << *coinCache;
 					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
-					
 				}
 
 				char jsonDoc[1024*1024] = {};
@@ -616,19 +608,12 @@ int main(int argc, char **argv)
 						Document jd;
 
 						start = __rdtscp(&junk);
-						// json::sax_parse(jsonDoc, &sax);
     					jd.Parse(jsonDoc);
 						end = __rdtscp(&junk);
-
 						// printf("%zu\n", (end-start));
-
-						// std::cout << jsonDoc << std::endl; /// too slow
-						// json result = json::parse(jsonDoc);
 
 						const char * type = jd["type"].GetString();
 						if (!strcmp(type, "snapshot")) {
-							// bids
-							// asks
 							const char *product = jd["product_id"].GetString();
 
 							bookMap[product] = std::make_shared<BookType>(); // create string
@@ -638,28 +623,23 @@ int main(int argc, char **argv)
 							const Value& bids = jd["bids"];
 							const Value& asks = jd["asks"];
 
-							if (!strcmp(product, "BTC-USD")) {
-								for (SizeType i = 0; i < bids.Size(); ++i) {
-									const char * px = bids[i][0].GetString();
-									const char * qty = bids[i][0].GetString();
-									uint64_t ipx = atof(px) * 100000000;
-									uint64_t iqty = atof(qty) * 100000000;
-									int outindex = -1;
-									book->InsertBid(ipx, iqty, outindex);
-								}
-
-								for (SizeType i = 0; i < asks.Size(); ++i) {
-									const char * px = asks[i][0].GetString();
-									const char * qty = asks[i][0].GetString();
-									uint64_t ipx = atof(px) * 100000000;
-									uint64_t iqty = atof(qty) * 100000000;
-									int outindex = -1;
-									book->InsertAsk(ipx, iqty, outindex);
-								}
+							for (SizeType i = 0; i < bids.Size(); ++i) {
+								const char * px = bids[i][0].GetString();
+								const char * qty = bids[i][0].GetString();
+								uint64_t ipx = atof(px) * 100000000;
+								uint64_t iqty = atof(qty) * 100000000;
+								int outindex = -1;
+								book->InsertBid(ipx, iqty, outindex);
 							}
 
-							// std::vector<json> asks = result["asks"];
-							
+							for (SizeType i = 0; i < asks.Size(); ++i) {
+								const char * px = asks[i][0].GetString();
+								const char * qty = asks[i][0].GetString();
+								uint64_t ipx = atof(px) * 100000000;
+								uint64_t iqty = atof(qty) * 100000000;
+								int outindex = -1;
+								book->InsertAsk(ipx, iqty, outindex);
+							}
 						} else if (!strcmp(type, "l2update")) {
 							const char *product = jd["product_id"].GetString();
 							static std::string lookup;
@@ -673,58 +653,54 @@ int main(int argc, char **argv)
 								const char * px = changes[i][1].GetString();
 								const char * qty = changes[i][2].GetString();
 
-								// if (!strcmp(product, "BTC-USD")) {
-									uint64_t ipx = atof(px) * 100000000;
-									uint64_t iqty = atof(qty) * 100000000;
-									int outindex = -1;
+								uint64_t ipx = atof(px) * 100000000;
+								uint64_t iqty = atof(qty) * 100000000;
+								int outindex = -1;
 
-								 	if(!strcmp(side, "buy")) {
-										if (iqty == 0) {
-											book->EraseBid(ipx, outindex);
-										} else {
-											if (!book->UpdateBid(ipx, iqty, outindex)) {
-												book->InsertBid(ipx, iqty, outindex);
-											}
+								if(!strcmp(side, "buy")) {
+									if (iqty == 0) {
+										book->EraseBid(ipx, outindex);
+									} else {
+										if (!book->UpdateBid(ipx, iqty, outindex)) {
+											book->InsertBid(ipx, iqty, outindex);
 										}
-									 } else {
-										 if (iqty == 0) {
-											book->EraseAsk(ipx, outindex);
-										} else {
-											if (!book->UpdateAsk(ipx, iqty, outindex)) {
-												book->InsertAsk(ipx, iqty, outindex);
-											}
+									}
+								} else {
+									if (iqty == 0) {
+										book->EraseAsk(ipx, outindex);
+									} else {
+										if (!book->UpdateAsk(ipx, iqty, outindex)) {
+											book->InsertAsk(ipx, iqty, outindex);
 										}
-									 }
+									}
+								}
 
-									CoinLevel bid,ask;
-									book->BestBid(bid);
-									book->BestAsk(ask);
-									char pub[1024];
-									size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
-																bid.qty, bid.px, ask.px, ask.qty);
-									WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-									publish->Push(pub, len);
-									wsManager->SetWriteAll();
+								CoinLevel bid,ask;
+								book->BestBid(bid);
+								book->BestAsk(ask);
+								char pub[1024];
+								size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
+															bid.qty, bid.px, ask.px, ask.qty);
+								WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+								publish->Push(pub, len);
+								wsManager->SetWriteAll();
 
 									// std::cout << std::endl << std::endl;
 									// book->RDumpAsk(20, true);			
 									// std::cout << "---" << std::endl;
 									// book->RDumpBid(20);			
-								// }
 							}
 						} else if (!strcmp(type, "error")) {
-							// std::stringstream s;
-							// s << result;
 							console->error("{0}", jsonDoc);
 						} else if (!strcmp(type, "ticker")) {
-						  const char *product = jd["product_id"].GetString();
-						  const char *vol24 = jd["volume_24h"].GetString();
-						  char pub[1024];
-						  size_t len = ::snprintf(pub, 1024, "Vol %s %s", product, vol24);
-						  WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-						  publish->Push(pub, len);
-						  wsManager->SetWriteAll();
-						  
+							const char *product = jd["product_id"].GetString();
+							const char *vol24 = jd["volume_24h"].GetString();
+							char pub[1024];
+							size_t len = ::snprintf(pub, 1024, "Vol %s %s", product, vol24);
+							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+							publish->Push(pub, len);
+							wsManager->SetWriteAll();
+							
 							// "best_ask":"6423.6",
 							// "best_bid":"6423.59",
 							// x"high_24h":"6471.00000000",
