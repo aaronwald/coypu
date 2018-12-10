@@ -38,7 +38,13 @@
 #include "buf/buf.h"
 #include "cache/cache.h"
 #include "book/level.h"
+#include <x86intrin.h>
 
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
+
+using namespace rapidjson;
 using json = nlohmann::json;
 
 using namespace coypu;
@@ -53,12 +59,81 @@ using namespace coypu::store;
 using namespace coypu::cache;
 using namespace coypu::book;
 
+class gdax_sax : public json::json_sax_t
+ {
+   public:
+     bool null() override
+     {
+         return true;
+     }
+ 
+     bool boolean(bool val) override
+     {
+         return true;
+     }
+ 
+     bool number_integer(number_integer_t val) override
+     {
+         return true;
+     }
+ 
+     bool number_unsigned(number_unsigned_t val) override
+     {
+         return true;
+     }
+ 
+     bool number_float(number_float_t val, const string_t& s) override
+     {
+         return true;
+     }
+ 
+     bool string(string_t& val) override
+     {
+         return true;
+     }
+ 
+     bool start_object(std::size_t elements) override
+     {
+         return true;
+     }
+ 
+     bool end_object() override
+     {
+         return true;
+     }
+ 
+     bool start_array(std::size_t elements) override
+     {
+         return true;
+     }
+ 
+     bool end_array() override
+     {
+         return true;
+     }
+ 
+     bool key(string_t& val) override
+     {
+         return true;
+     }
+ 
+     bool parse_error(std::size_t position, const std::string& last_token, const json::exception& ex) override
+     {
+         return false;
+     }
+ };
+
 struct CoinLevel {
   uint64_t px;
   uint64_t qty;
   CoinLevel *next, *prev;
 
   CoinLevel (uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr) {
+  }
+
+  void Set (uint64_t px, uint64_t qty) {
+	  this->px = px;
+	  this->qty = qty;
   }
 
   CoinLevel () : px (UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr) {
@@ -504,6 +579,10 @@ int main(int argc, char **argv)
 			a->error("failed to connect to ws-feed.");
 			exit(1);
 		}
+		int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
+		assert(r == 0);
+		r= TCPHelper::SetNoDelay(wsFD);
+		assert(r == 0);
 
 		openSSLMgr->Register(wsFD);
 
@@ -577,93 +656,97 @@ int main(int argc, char **argv)
 		std::weak_ptr<StreamType> wStreamSP = streamSP; 
 
 		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [wsFD, &console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
+		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
-			static LevelAllocator<CoinLevel, 4096*16> la;
-			static CLevelBook<CoinLevel> book ([] (const CoinLevel *lhs, const CoinLevel *rhs) -> bool { return lhs->px < rhs->px; });
+			static CBook <CoinLevel, 4096*16> book;
+			unsigned int junk= 0;
+			uint64_t start = 0, end = 0;
 
 			auto wsManager = wWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
 			auto stream = wStreamSP.lock();
 			auto coinCache = wCoinCache.lock();
 			if (publish && wsManager && stream  && coinCache) {
+				// std::cout << stream->Available() << std::endl;
 				if (!(seqNum % 100)) {
 					std::stringstream ss;
 					ss << *coinCache;
 					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
-
-
+					
 				}
 
 				char jsonDoc[1024*1024] = {};
 				if (len < sizeof(jsonDoc)) {
 					// sad copying but nice json library
 					if(stream->Pop(jsonDoc, offset, len)) {
-					  
 						jsonDoc[len] = 0;
-						json result = json::parse(jsonDoc);
-						std::string &type = result["type"].get_ref<std::string &>();
-						if (type == "snapshot") {
-						  // bids
-						  // asks
-							std::string product = result["product_id"];
+						gdax_sax sax;
+						Document jd;
 
-							std::vector<json> bids = result["bids"];
-							if (product == "ETH-USD") {
-							  auto b = bids.begin();
-							  auto e = bids.end();
-							  for(;b!=e; ++b) {
-								 std::string px = (*b)[0].get<std::string>();
-								 std::string qty = (*b)[1].get<std::string>();
+						start = __rdtscp(&junk);
+						// json::sax_parse(jsonDoc, &sax);
+    					jd.Parse(jsonDoc);
+						end = __rdtscp(&junk);
 
-								  uint64_t ipx = atof(px.c_str()) * 100000000;
-								  uint64_t iqty = atof(qty.c_str()) * 100000000;
-								  int outindex = -1;
-								  book.Insert(la.Allocate(ipx, iqty), outindex);
-							  }
-							}
+						// printf("%zu\n", (end-start));
 
-							std::vector<json> asks = result["asks"];
-							
-						} else if (type == "l2update") {
-							std::string product = result["product_id"];
+						// std::cout << jsonDoc << std::endl; /// too slow
+						// json result = json::parse(jsonDoc);
 
-							std::vector<json> changes = result["changes"];
-							auto b = changes.begin();
-							auto e = changes.end();
-							for(;b!=e; ++b) {
-								std::string side = (*b)[0].get<std::string>();
-								std::string px = (*b)[1].get<std::string>();
-								std::string qty = (*b)[2].get<std::string>();
+						const char * type = jd["type"].GetString();
+						if (!strcmp(type, "snapshot")) {
+							// bids
+							// asks
+							const char *product = jd["product_id"].GetString();
 
-								if (product == "ETH-USD" && side == "buy") {
+							const Value& bids = jd["bids"];
+							if (!strcmp(product, "ETH-USD")) {
+								for (SizeType i = 0; i < bids.Size(); ++i) {
+									const char * px = bids[i][0].GetString();
+									const char * qty = bids[i][0].GetString();
+									// std::string px = (*b)[0].get<std::string>();
+									// std::string qty = (*b)[1].get<std::string>();
 
-								  uint64_t ipx = atof(px.c_str()) * 100000000;
-								  uint64_t iqty = atof(qty.c_str()) * 100000000;
-								  int outindex = -1;
-								  if (iqty == 0) {
-									 // TODO Fix leak
-									 CoinLevel *cl = book.Erase(ipx, outindex);
-									 if (cl) {
-									 }
-								  } else {
-									 if (!book.Update(ipx, iqty, outindex)) {
-										book.Insert(la.Allocate(ipx, iqty), outindex);
-									 }
-								  }
-
-								  std::cout << "---" << std::endl;
-								  book.Dump(10);
+									uint64_t ipx = atof(px) * 100000000;
+									uint64_t iqty = atof(qty) * 100000000;
+									int outindex = -1;
+									book.InsertBid(ipx, iqty, outindex);
 								}
-
-								// update side book for px and qty
 							}
-						} else if (type == "error") {
-							std::stringstream s;
-							s << result;
-							console->error("{0}", s.str());
-						} else if (type == "ticker") {
+
+							// std::vector<json> asks = result["asks"];
+							
+						} else if (!strcmp(type, "l2update")) {
+							const char *product = jd["product_id"].GetString();
+
+							const Value& changes = jd["changes"];
+							for (SizeType i = 0; i < changes.Size(); ++i) {
+								const char * side = changes[i][0].GetString();
+								const char * px = changes[i][1].GetString();
+								const char * qty = changes[i][2].GetString();
+
+								if (!strcmp(product, "ETH-USD") && !strcmp(side, "buy")) {
+									uint64_t ipx = atof(px) * 100000000;
+									uint64_t iqty = atof(qty) * 100000000;
+									int outindex = -1;
+									if (iqty == 0) {
+										book.EraseBid(ipx, outindex);
+									} else {
+										if (!book.UpdateBid(ipx, iqty, outindex)) {
+											book.InsertBid(ipx, iqty, outindex);
+										}
+									}
+
+									std::cout << "---" << std::endl;
+									book.RDumpBid(10);			
+								}
+							}
+						} else if (!strcmp(type, "error")) {
+							// std::stringstream s;
+							// s << result;
+							console->error("{0}", jsonDoc);
+						} else if (!strcmp(type, "ticker")) {
 							// "best_ask":"6423.6",
 							// "best_bid":"6423.59",
 							// x"high_24h":"6471.00000000",
@@ -683,59 +766,55 @@ int main(int argc, char **argv)
 							// product_id, time, high_low,volume,open,price
 
 							// the last-value cache should be from ticker
-							std::stringstream s;
-							s << result;
+							// std::stringstream s;
+							// s << result;
 
-							CoinCache cc(coinCache->NextSeq());
-							if (!result["product_id"].is_null()) {
-								std::string &product = result["product_id"].get_ref<std::string &>();
-								memcpy(cc._key, product.c_str(), std::max(sizeof(cc._key)-1, product.length()));
-							}
+							// CoinCache cc(coinCache->NextSeq());
+							// if (!result["product_id"].is_null()) {
+							// 	std::string &product = result["product_id"].get_ref<std::string &>();
+							// 	memcpy(cc._key, product.c_str(), std::max(sizeof(cc._key)-1, product.length()));
+							// }
 
-							if (!result["time"].is_null()) {
-								std::string &timeStr = result["time"].get_ref<std::string &>();
+							// if (!result["time"].is_null()) {
+							// 	std::string &timeStr = result["time"].get_ref<std::string &>();
 
-								if (!timeStr.empty()) {
-									struct tm tm;
-									memset(&tm, 0, sizeof(struct tm));
-									strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
+							// 	if (!timeStr.empty()) {
+							// 		struct tm tm;
+							// 		memset(&tm, 0, sizeof(struct tm));
+							// 		strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
 
-									size_t i = timeStr.find('.');
-									if (i > 0) {
-										cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
-										cc._seconds  = mktime(&tm);
-									}
-								}
-							}
+							// 		size_t i = timeStr.find('.');
+							// 		if (i > 0) {
+							// 			cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
+							// 			cc._seconds  = mktime(&tm);
+							// 		}
+							// 	}
+							// }
 
-							if (!result["high_24h"].is_null()) {
-								cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
-							}
+							// if (!result["high_24h"].is_null()) {
+							// 	cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
+							// }
 
-							if (!result["low_24h"].is_null()) {
-								cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
-							}
+							// if (!result["low_24h"].is_null()) {
+							// 	cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
+							// }
 
-							if (!result["volume_24h"].is_null()) {
-								cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
-							}
+							// if (!result["volume_24h"].is_null()) {
+							// 	cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
+							// }
 
-							if (!result["sequence"].is_null()) {
-								cc._origseqno = result["sequence"].get<uint64_t>();
-							}
-							
-							//double px = atof(result["price"].get_ref<std::string &>().c_str());
+							// if (!result["sequence"].is_null()) {
+							// 	cc._origseqno = result["sequence"].get<uint64_t>();
+							// }
 							
 
-							// WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
-							coinCache->Push(cc);
-						} else if (type == "subscriptions") {
-						} else if (type == "heartbeat") {
+							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							// coinCache->Push(cc);
+						} else if (!strcmp(type, "subscriptions")) {
+						} else if (!strcmp(type, "heartbeat")) {
 							// skip
 						} else {
-							std::stringstream s;
-							s << result;
-							console->warn("{0} {1}", type, s.str()); // spdlog does not do streams
+							console->warn("{0} {1}", type, jsonDoc); // spdlog does not do streams
 						}
 					} else {
 						assert(false);
@@ -778,5 +857,3 @@ int main(int argc, char **argv)
 
 	return 0;
 }
-
-

@@ -71,7 +71,10 @@
         "locale": "cpp",
         "__functional_base": "cpp",
         "__locale": "cpp",
-        "ios": "cpp"
+        "ios": "cpp",
+        "__mutex_base": "cpp",
+        "forward_list": "cpp",
+        "valarray": "cpp"
     },
     "python.pythonPath": "${workspaceFolder}/test/test/bin/python3.6"
 }
