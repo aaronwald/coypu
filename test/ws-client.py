@@ -36,18 +36,30 @@ if __name__ == "__main__":
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
     curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    height,width = stdscr.getmaxyx()
 
     last_y = 0
     products = {}
+    seq_no = 0
     while 1:
         c = stdscr.getch()
         
         if c == ord('q'):
             break
+        elif c == curses.KEY_RESIZE:
+            oldheight = height-1
+            height,width = stdscr.getmaxyx()
+            if oldheight < height:
+                stdscr.addstr(oldheight,0,"")
+                stdscr.clrtoeol()
+
             
-        
         if not ws_queue.empty():
             doc = ws_queue.get(False)
+            seq_no = seq_no + 1
+
+            stdscr.addstr(height-1,0, "{:d}".format(seq_no))
+
             if doc:
                 l = doc.split(' ')
                 if l[0] == "Vol":

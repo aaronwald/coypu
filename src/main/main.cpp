@@ -5,22 +5,22 @@
 #include <arpa/inet.h>
 #include <sys/uio.h>
 #include <time.h>
+#include <openssl/rand.h>
+#include <x86intrin.h>
 
 #include <memory>
 #include <vector>
 #include <iostream>
 #include <unordered_map>
 #include <thread>
-
-#include <openssl/rand.h>
-
 #include <iomanip>
 #include <sstream>
-// #include <nlohmann/json.hpp>
-
 
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h" // support for basic file logging
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
 
 #include "coypu/coypu.h"
 #include "coypu/spdlogger.h"
@@ -38,11 +38,7 @@
 #include "buf/buf.h"
 #include "cache/cache.h"
 #include "book/level.h"
-#include <x86intrin.h>
-
-#include "rapidjson/document.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/stringbuffer.h"
+#include "util/backtrace.h"
 
 using namespace rapidjson;
 // using json = nlohmann::json;
@@ -58,6 +54,7 @@ using namespace coypu::file;
 using namespace coypu::store;
 using namespace coypu::cache;
 using namespace coypu::book;
+using namespace coypu::backtrace;
 
 struct CoinLevel
 {
@@ -238,6 +235,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "RAND_load_file fail.\n"); // ERR_*
 		exit(1);
 	}
+
+	// set terminate
+    std::set_terminate([](){ std::cout << "Unhandled exception\n";
+							BackTrace::bt();
+							std::abort();});
 
 	// Block all signals - wait til random is collected
 	SignalFDHelper::BlockAllSignals();
