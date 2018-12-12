@@ -17,8 +17,8 @@ namespace coypu {
                 typedef std::function<int(int)> write_cb_type;
 
                 AdminManager (LogTrait logger, 
-                              write_cb_type set_write) : _logger(logger),
-                              _capacity(64*1024), _set_write(set_write)  {
+                                write_cb_type set_write) : _logger(logger),
+                                _capacity(64*1024), _set_write(set_write)  {
                     }
 
                 virtual ~AdminManager () {
@@ -64,6 +64,13 @@ namespace coypu {
                             for (std::string &tok : tokens) {
                                 std::cout << tok << std::endl;
                             }
+
+                            // con->_writeBuf->Push('f');
+                            // con->_writeBuf->Push('o');
+                            // con->_writeBuf->Push('o');
+                            // con->_writeBuf->Push('\r');
+                            // con->_writeBuf->Push('\n');
+                            // _set_write(fd);
                         }
                     }
 
@@ -76,9 +83,13 @@ namespace coypu {
                     std::shared_ptr<con_type> &con = (*x).second;
                     if (!con) return -2;
                     
-                    int r = con->_writeBuf->Writev(fd, con->_writev);
+                    int ret = con->_writeBuf->Writev(fd, con->_writev);
+                    if (ret < 0) return ret; // error
 
-                    return r;
+                    // We could have EAGAIN/EWOULDBLOCK so we want to maintain write if data available
+                    // 0 will clear write bit
+                    // Can improve branching here if we just return is empty directly on the stack without another call
+                    return con->_writeBuf->IsEmpty() ? 0 : 1;
                 }
                 
 
@@ -117,7 +128,6 @@ namespace coypu {
                 write_cb_type _set_write;
                 typedef std::unordered_map<int, std::shared_ptr<con_type>> con_map_type;
                 con_map_type _connections;
-
         };
     }
 }

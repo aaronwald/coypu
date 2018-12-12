@@ -828,9 +828,6 @@ int main(int argc, char **argv)
 
 		// using IP V4
 		int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
-		if (TCPHelper::SetNoDelay(clientfd)) {
-		}
-
 		auto adminManager = wAdminManager.lock();
 		auto eventMgr = wEventMgr.lock();
 
@@ -838,7 +835,6 @@ int main(int argc, char **argv)
 			std::function<int(int,const struct iovec *,int)> rv = [] (int fd, const struct iovec *iov, int count) -> int { return ::readv(fd, iov, count); };
 			std::function<int(int,const struct iovec *,int)> wv = [] (int fd, const struct iovec *iov, int count) -> int { return ::writev(fd, iov, count); };
 			adminManager->Register(clientfd, rv, wv);	
-
 
 			std::function<int(int)> readCB = std::bind(&AdminManagerType::Read, adminManager, std::placeholders::_1);
 			std::function<int(int)> writeCB = std::bind(&AdminManagerType::Write, adminManager, std::placeholders::_1);
