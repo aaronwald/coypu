@@ -39,6 +39,7 @@
 #include "cache/cache.h"
 #include "book/level.h"
 #include "util/backtrace.h"
+#include "admin/admin.h"
 
 using namespace rapidjson;
 // using json = nlohmann::json;
@@ -55,6 +56,9 @@ using namespace coypu::store;
 using namespace coypu::cache;
 using namespace coypu::book;
 using namespace coypu::backtrace;
+using namespace coypu::admin;
+
+extern "C" void processRust(uint32_t);
 
 struct CoinLevel
 {
@@ -119,6 +123,7 @@ typedef LogWriteBuf<FileUtil> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
+typedef AdminManager<LogType> AdminManagerType;
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
@@ -210,14 +215,50 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 	return nullptr;
 }
 
-extern "C" void processRust(uint32_t);
+int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const char *interface, uint16_t port) {
+	int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
+	if (sockFD < 0) {
+		logger->perror(errno, "CreateIPV4NonBlockSocket");
+		return -1;
+	}
+
+	if (TCPHelper::SetReuseAddr(sockFD) < 0 ) {
+		logger->perror(errno, "SetReuseAddr");
+		return -1;
+	}
+	struct sockaddr_in interface_in;
+	int ret = TCPHelper::GetInterfaceIPV4FromName (interface, strlen(interface), interface_in);
+	if (ret) {
+		logger->perror(errno, "GetInterfaceIPV4FromName");
+		return -1;
+	}
+
+	struct sockaddr_in serv_addr= {0}; //v4 family
+
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = INADDR_ANY; //interface_in.sin_addr.s_addr;
+	serv_addr.sin_port = htons(port);
+
+	ret = TCPHelper::BindIPV4(sockFD, &serv_addr);
+	if (ret != 0) {
+		::close(sockFD);
+		logger->perror(errno, "BindIPV4");
+		return -1;
+	}
+
+	ret = TCPHelper::Listen(sockFD, 16);
+	if (ret != 0) {
+		logger->perror(errno, "Listen");
+		return -1;
+	}
+	return sockFD;
+}
 
 int main(int argc, char **argv)
 {
 	processRust(10);
 
 	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
-
 
 	if (argc != 2)
 	{
@@ -295,6 +336,7 @@ int main(int argc, char **argv)
 
 	auto a = std::make_shared<coypu::SPDLogger>(console);
 
+
 	auto eventMgr = std::make_shared<EventManagerType>(a);
 	eventMgr->Init();
 
@@ -324,38 +366,9 @@ int main(int argc, char **argv)
 		a->perror(errno, "Register");
 	}
 
-	int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
-	if (sockFD < 0) {
-		a->perror(errno, "CreateIPV4NonBlockSocket");
-	}
-
-	if (TCPHelper::SetReuseAddr(sockFD) < 0 ) {
-		a->perror(errno, "SetReuseAddr");
-	}
 
 	const char * interface = "enp0s3";
-	struct sockaddr_in interface_in;
-	int ret = TCPHelper::GetInterfaceIPV4FromName (interface, strlen(interface), interface_in);
-	if (ret) {
-		a->perror(errno, "GetInterfaceIPV4FromName");
-		exit(1);
-	}
-
-	struct sockaddr_in serv_addr= {0}; //v4 family
-
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = INADDR_ANY; //interface_in.sin_addr.s_addr;
-	serv_addr.sin_port = htons(8080);
-
-	ret = TCPHelper::BindIPV4(sockFD, &serv_addr);
-	if (ret != 0) {
-		a->perror(errno, "BindIPV4");
-	}
-
-	ret = TCPHelper::Listen(sockFD, 16);
-	if (ret != 0) {
-		a->perror(errno, "Listen");
-	}
+	int sockFD = BindAndListen(a, interface, 8080);
 
 	std::shared_ptr<StoreType> store;
 	std::string wsStoreFile;
@@ -392,6 +405,7 @@ int main(int argc, char **argv)
 
 	std::function<int(int)> set_write_ws = std::bind(&EventManagerType::SetWrite, eventMgr, std::placeholders::_1);
 	std::shared_ptr<WebSocketManagerType> wsManager = std::make_shared<WebSocketManagerType>(wsLogger, set_write_ws);
+
 	std::weak_ptr<WebSocketManagerType> wWsManager = wsManager;
 	std::weak_ptr <EventManagerType> wEventMgr = eventMgr;
 
@@ -404,7 +418,6 @@ int main(int argc, char **argv)
 	};
 
 	// BEGIN Websocket Server Test
-
 	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_PUBLISH_PATH); 
 	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
@@ -433,6 +446,7 @@ int main(int argc, char **argv)
 
 	// coinCache->Dump(std::cout);
 	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
+
 	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
@@ -765,10 +779,10 @@ int main(int argc, char **argv)
 								cc._origseqno = jd["sequence"].GetUint64();
 							}
 							
-
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
 							coinCache->Push(cc);
 						} else if (!strcmp(type, "subscriptions")) {
+							// skip
 						} else if (!strcmp(type, "heartbeat")) {
 							// skip
 						} else {
@@ -778,9 +792,6 @@ int main(int argc, char **argv)
 						assert(false);
 					}
 				}
-			
-
-				
 			}
 		};
 		
@@ -803,6 +814,52 @@ int main(int argc, char **argv)
 
 		wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
 	}
+
+	// BEGIN Admin Manager (Using wsLogger)
+	auto adminMgr = std::make_shared<AdminManagerType>(wsLogger, set_write_ws);
+
+	int adminFD = BindAndListen(a, interface, 9999);
+	assert(adminFD > 0);
+	std::weak_ptr<AdminManagerType> wAdminManager = adminMgr;
+
+	coypu::event::callback_type adminAcceptCB = [wAdminManager, wEventMgr] (int fd) {
+		struct sockaddr_in client_addr= {0};
+		socklen_t addrlen= sizeof(sockaddr_in);
+
+		// using IP V4
+		int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
+		if (TCPHelper::SetNoDelay(clientfd)) {
+		}
+
+		auto adminManager = wAdminManager.lock();
+		auto eventMgr = wEventMgr.lock();
+
+		if (adminManager && eventMgr) {
+			std::function<int(int,const struct iovec *,int)> rv = [] (int fd, const struct iovec *iov, int count) -> int { return ::readv(fd, iov, count); };
+			std::function<int(int,const struct iovec *,int)> wv = [] (int fd, const struct iovec *iov, int count) -> int { return ::writev(fd, iov, count); };
+			adminManager->Register(clientfd, rv, wv);	
+
+
+			std::function<int(int)> readCB = std::bind(&AdminManagerType::Read, adminManager, std::placeholders::_1);
+			std::function<int(int)> writeCB = std::bind(&AdminManagerType::Write, adminManager, std::placeholders::_1);
+			std::function<int(int)> closeCB = [wAdminManager] (int fd) {
+				auto adminManager = wAdminManager.lock();
+				if (adminManager) {
+					adminManager->Unregister(fd);
+				}
+				return 0;
+			};
+			eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+		}
+
+		return 0;
+	};
+
+	if (eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
+		a->perror(errno, "Register");
+	}
+
+	// END Admin Manager
 
 	// watch out for threading on loggers
 	std::thread t1(bar, eventMgr, std::ref(done));
