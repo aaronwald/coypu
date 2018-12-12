@@ -106,7 +106,6 @@ struct CoinCache {
 		_vol24(0), _open(0), _last(0) {
 	  ::memset(_key, 0, sizeof(_key));
 	}
-
 } __attribute__ ((packed, aligned(64)));
 
 // Coypu Types
@@ -211,8 +210,12 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 	return nullptr;
 }
 
+extern "C" void processRust(uint32_t);
+
 int main(int argc, char **argv)
 {
+	processRust(10);
+
 	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
 
 
@@ -405,8 +408,6 @@ int main(int argc, char **argv)
 	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_PUBLISH_PATH); 
 	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
-
-
 	
 	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_CACHE_PATH); 
 	assert(cacheStreamSP != nullptr);
@@ -721,51 +722,52 @@ int main(int argc, char **argv)
 
 							// product_id, time, high_low,volume,open,price
 
-							// the last-value cache should be from ticker
-							// std::stringstream s;
-							// s << result;
+							CoinCache cc(coinCache->NextSeq());
+							if (product) {
+								memcpy(cc._key, product, std::max(sizeof(cc._key)-1, ::strlen(product)));
+							}
 
-							// CoinCache cc(coinCache->NextSeq());
-							// if (!result["product_id"].is_null()) {
-							// 	std::string &product = result["product_id"].get_ref<std::string &>();
-							// 	memcpy(cc._key, product.c_str(), std::max(sizeof(cc._key)-1, product.length()));
-							// }
+							const char *timeRaw =jd.HasMember("time") ? jd["time"].GetString(): nullptr;
+							if (timeRaw) {
+								std::string timeStr(timeRaw);
 
-							// if (!result["time"].is_null()) {
-							// 	std::string &timeStr = result["time"].get_ref<std::string &>();
+								if (!timeStr.empty()) {
+									struct tm tm;
+									memset(&tm, 0, sizeof(struct tm));
+									strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
 
-							// 	if (!timeStr.empty()) {
-							// 		struct tm tm;
-							// 		memset(&tm, 0, sizeof(struct tm));
-							// 		strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
+									size_t i = timeStr.find('.');
+									if (i > 0) {
+										cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
+										cc._seconds  = mktime(&tm);
+									}
+								}
+							}
 
-							// 		size_t i = timeStr.find('.');
-							// 		if (i > 0) {
-							// 			cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
-							// 			cc._seconds  = mktime(&tm);
-							// 		}
-							// 	}
-							// }
+							const char *h24 = jd.HasMember("high_24h") ? jd["high_24h"].GetString() : nullptr;
+							const char *l24 = jd.HasMember("low_24h") ? jd["low_24h"].GetString() : nullptr;
+							const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
 
-							// if (!result["high_24h"].is_null()) {
-							// 	cc._high24 = atof(result["high_24h"].get_ref<std::string &>().c_str());
-							// }
 
-							// if (!result["low_24h"].is_null()) {
-							// 	cc._low24 = atof(result["low_24h"].get_ref<std::string &>().c_str());
-							// }
+							if (h24) {
+								cc._high24 = atof(h24);
+							}
 
-							// if (!result["volume_24h"].is_null()) {
-							// 	cc._vol24 = atof(result["volume_24h"].get_ref<std::string &>().c_str());
-							// }
+							if (l24) {
+								cc._low24 = atof(l24);
+							}
 
-							// if (!result["sequence"].is_null()) {
-							// 	cc._origseqno = result["sequence"].get<uint64_t>();
-							// }
+							if (v24) {
+								cc._vol24 = atof(v24);
+							}
+
+							if (jd.HasMember("sequence")) {
+								cc._origseqno = jd["sequence"].GetUint64();
+							}
 							
 
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
-							// coinCache->Push(cc);
+							coinCache->Push(cc);
 						} else if (!strcmp(type, "subscriptions")) {
 						} else if (!strcmp(type, "heartbeat")) {
 							// skip

@@ -2,6 +2,7 @@ cmake_minimum_required (VERSION 3.8)
 project(coypu)
 include (CTest)
 include (GoogleTest)
+include (ExternalProject)
 
 list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
 
@@ -45,7 +46,18 @@ include_directories(${PROJECT_SOURCE_DIR}/src/bpf/)
 
 set(CMAKE_INSTALL_RPATH "/usr/local/lib")
 
+ExternalProject_Add(rust_lib
+							DOWNLOAD_COMMAND ""
+							CONFIGURE_COMMAND ""
+							BUILD_COMMAND cargo build COMMAND cargo build --release
+							BINARY_DIR "${CMAKE_SOURCE_DIR}/src/rust-lib"
+							INSTALL_COMMAND ""
+							LOG_BUILD ON)
+
+link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
+
 add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
+add_dependencies(coypu rust_lib)
 target_link_libraries(coypu yaml)
 target_link_libraries(coypu pthread)
 target_link_libraries(coypu crypto)
@@ -59,6 +71,7 @@ target_link_libraries(coypu m)
 target_link_libraries(coypu c)
 target_link_libraries(coypu gcc_s)
 target_link_libraries(coypu gcc)
+target_link_libraries(coypu coypurust)
 
 add_executable(nutra_bpf_load ${BPF_SRC})
 target_link_libraries(nutra_bpf_load elf)
