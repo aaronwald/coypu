@@ -13,11 +13,11 @@ namespace coypu {
         template <typename LogTrait>
         class AdminManager {
             public:
-                typedef std::function<void(const std::string &cmd)> callback_type;
+                typedef std::function<void(const std::vector<std::string> &cmd)> callback_type;
                 typedef std::function<int(int)> write_cb_type;
 
                 AdminManager (LogTrait logger, 
-                                write_cb_type set_write) : _logger(logger),
+                                write_cb_type set_write) noexcept : _logger(logger),
                                 _capacity(64*1024), _set_write(set_write)  {
                     }
 
@@ -25,8 +25,8 @@ namespace coypu {
                 }
 
                 bool Register(int fd, 
-                                        std::function<int(int,const struct iovec *,int)> readv,
-                                        std::function<int(int,const struct iovec *,int)> writev
+                                std::function<int(int,const struct iovec *,int)> &readv,
+                                std::function<int(int,const struct iovec *,int)> &writev
                 ) {
                     auto sp = std::make_shared<con_type>(fd, _capacity, readv, writev); // 32k capacity
                     auto p = std::make_pair(fd, sp);
@@ -42,6 +42,10 @@ namespace coypu {
                 }
 
                 bool RegisterCommand (const std::string &name, callback_type cb) {
+                    if (_commands.find(name) == _commands.end()) {
+                        _commands.insert(std::make_pair(name, cb));
+                        return true;
+                    }
                     return false;
                 }
 
@@ -61,10 +65,12 @@ namespace coypu {
                             std::string s(buf);
                             std::vector<std::string> tokens;
                             coypu::util::StringUtil::Split(s, ' ', tokens);
-                            for (std::string &tok : tokens) {
-                                std::cout << tok << std::endl;
+                            if (tokens.size() > 0) {
+                                auto b = _commands.find(tokens[0]);
+                                if (b != _commands.end()) {
+                                    (*b).second(tokens);
+                                }
                             }
-
                             // con->_writeBuf->Push('f');
                             // con->_writeBuf->Push('o');
                             // con->_writeBuf->Push('o');
@@ -123,11 +129,14 @@ namespace coypu {
                         }
                     } con_type;
 
+                typedef std::unordered_map<int, std::shared_ptr<con_type>> con_map_type;
+                typedef std::unordered_map<std::string, callback_type> cmd_map_type;
+
                 LogTrait _logger;
                 uint64_t _capacity;
                 write_cb_type _set_write;
-                typedef std::unordered_map<int, std::shared_ptr<con_type>> con_map_type;
                 con_map_type _connections;
+                cmd_map_type _commands;
         };
     }
 }
