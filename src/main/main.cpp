@@ -36,7 +36,7 @@
 #include "file/file.h"
 #include "store/store.h"
 #include "buf/buf.h"
-#include "cache/cache.h"
+#include "cache/seqcache.h"
 #include "book/level.h"
 #include "util/backtrace.h"
 #include "admin/admin.h"
@@ -201,7 +201,8 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 			// open in direct mode
 			int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
 			if (fd >= 0) {
-				size_t pageSize = MemManager::GetPageSize();
+				int pageMult = 64;
+				size_t pageSize = pageMult * MemManager::GetPageSize();
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
 
@@ -355,7 +356,7 @@ int main(int argc, char **argv)
 	coypu::event::callback_type readCB = [&done](int fd) {
 		printf("Read signal.\n");
 		struct signalfd_siginfo signal;
-		int count = ::read(fd, &signal, sizeof(signal));
+		int count = ::read(fd, &signal, sizeof(signal));  
 		if (count == -1) {
 			fprintf(stderr, "Signal read error\n");
 		}
@@ -391,9 +392,8 @@ int main(int argc, char **argv)
 
 		if (!logger.empty()) {
 			std::shared_ptr<spdlog::logger> x = spdlog::get(logger);
-			if (x) {
-				wsLogger = std::make_shared<SPDLogger>(x);
-			}
+			assert(x);
+			wsLogger = std::make_shared<SPDLogger>(x);
 		}
 
 		CPUManager::SetName("websocket");
@@ -576,6 +576,7 @@ int main(int argc, char **argv)
 			return 0;
 		};
 
+		// TODO Fix
 		std::string storeFile("gdax.store");
 		std::shared_ptr<StreamType> streamSP = nullptr; 
 
@@ -585,7 +586,7 @@ int main(int argc, char **argv)
 			// open in direct mode
 			int fd = FileUtil::Open(storeFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
 			if (fd >= 0) {
-				size_t pageSize = MemManager::GetPageSize();
+				size_t pageSize = 64 * MemManager::GetPageSize();
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
 				a->info("Current size [{0}]", curSize);
@@ -759,7 +760,6 @@ int main(int argc, char **argv)
 							const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
 							const char *px = jd.HasMember("price") ? jd["price"].GetString() : nullptr;
 
-							// these are encoded as strings
 							if (h24) {
 								cc._high24 = atof(h24);
 							}
@@ -791,6 +791,7 @@ int main(int argc, char **argv)
 							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 							publish->Push(pub, len);
 							wsManager->SetWriteAll();
+
 
 						} else if (!strcmp(type, "subscriptions")) {
 							// skip

@@ -75,7 +75,8 @@
         "__mutex_base": "cpp",
         "forward_list": "cpp",
         "valarray": "cpp",
-        "queue": "cpp"
+        "queue": "cpp",
+        "__functional_base_03": "cpp"
     },
     "python.pythonPath": "${workspaceFolder}/test/test/bin/python3.6"
 }

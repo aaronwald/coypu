@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include <iostream>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -550,15 +551,21 @@ namespace coypu
                             {
                                 if (con->_server) {
                                     int checkHeaderCount = 0;
+                                    int neededCount = 5;
+                                    bool checkOrigin = false;
+                                    if (checkOrigin) {
+                                        ++neededCount;
+                                    }
 
                                     if (con->HasHeader(HEADER_HOST)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_UPGRADE)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_CONNECTION)) ++checkHeaderCount;
-                                    if (con->HasHeader(HEADER_ORIGIN)) ++checkHeaderCount;
+                                    if (checkOrigin && con->HasHeader(HEADER_ORIGIN)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_SEC_WEBSOCKET_KEY)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_SEC_WEBSOCKET_VERSION)) ++checkHeaderCount;
+                                    _logger->debug("Check count {}", checkHeaderCount);
 
-                                    if (con->_method == "GET" && con->_version == "HTTP/1.1" && checkHeaderCount == 6) {
+                                    if (con->_method == "GET" && con->_version == "HTTP/1.1" && checkHeaderCount == neededCount) {
                                         std::string wskey;
                                         if(!con->GetHeader(HEADER_SEC_WEBSOCKET_KEY, wskey)) {
                                             _logger->error("Failed to read {0}", HEADER_SEC_WEBSOCKET_KEY);
@@ -582,7 +589,7 @@ namespace coypu
                                         int r = snprintf(keyHeader, 1024, "%s: %s\r\n", HEADER_SEC_WEBSOCKET_ACCEPT, newKey.c_str());
                                         con->_writeBuf->Push(keyHeader, r); // Sec-WebSocket-Accept: key\r\n
                                         con->_writeBuf->Push(HEADER_HTTP_NEWLINE, HEADER_HTTP_NEWLINE_LEN); // \r\n
-
+                                        _logger->info("Open {0}", con->_fd);
                                         con->_state = WS_CS_OPEN;
                                         _set_write(con->_fd);
                                     }
@@ -712,6 +719,7 @@ namespace coypu
                                 return -2;
                             }
                             header[offset] = 0;
+
                             if (is_uri && con->_server) {
                                 std::string raw = std::string(header, offset-1);
                                 is_uri = false;
