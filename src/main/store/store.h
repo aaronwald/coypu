@@ -85,7 +85,6 @@ namespace coypu {
           }
             
           _dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapSharedWrite(_fd, _offset, _pageSize));
-          printf("Allocate %ld\n", _pageSize);
           if (!_dataPage.first) {
             return -3;
           }

@@ -263,48 +263,6 @@ namespace coypu {
                     std::function <int (int)> _set_write;
                     std::vector <std::shared_ptr<SSLConnection>> _fdToCon;
                     SSL_CTX *_ctx;
-
-                    // forgot to include link to where this is from
-                    void dump_cert_info(SSL *ssl, bool server) {
-                        if(server) {
-                            printf("Ssl server version: %s", SSL_get_version(ssl));
-                        }
-                        else {
-                            printf("Client Version: %s", SSL_get_version(ssl));
-                        }
-
-                        /* The cipher negotiated and being used */
-                        printf("Using cipher %s", SSL_get_cipher(ssl));
-
-                        /* Get client's certificate (note: beware of dynamic allocation) - opt */
-                        X509 *client_cert = SSL_get_peer_certificate(ssl);
-                        if (client_cert != NULL) {
-                            if(server) {
-                                printf("Client certificate:\n");
-                            }
-                            else {
-                                printf("Server certificate:\n");
-                            }
-                            char *str = X509_NAME_oneline(X509_get_subject_name(client_cert), 0, 0);
-                            if(str == NULL) {
-                                printf("warn X509 subject name is null");
-                            }
-                            printf("\t Subject: %s\n", str);
-                            OPENSSL_free(str);
-
-                            str = X509_NAME_oneline(X509_get_issuer_name(client_cert), 0, 0);
-                            if(str == NULL) {
-                                printf("warn X509 issuer name is null");
-                            }
-                            printf("\t Issuer: %s\n", str);
-                            OPENSSL_free(str);
-
-                            /* Deallocate certificate, free memory */
-                            X509_free(client_cert);
-                        } else {
-                            printf("Client does not have certificate.\n");
-                        }
-                    }
             };
 
 				template <typename T>
