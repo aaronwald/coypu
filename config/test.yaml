@@ -7,17 +7,19 @@ loggers:
 coypu: 
   websocket:
     logger: ws-logger
-    cpu: 1
+    cpu: 8
 
 do-gdax: true
 
 gdax-symbols: 
   - BTC-USD
+  - BTC-EUR
   - ETH-USD
   - ETH-EUR
   - ETH-BTC
   - ZRX-USD
   - EOS-USD
+  - BCH-USD
 
 gdax-channels:
   - ticker

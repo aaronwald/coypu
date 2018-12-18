@@ -38,7 +38,7 @@ file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
 
 
 include_directories(${PROJECT_SOURCE_DIR}/src/main)
-include_directories("/home/vagrant/interwebs/rapidjson/include/")
+include_directories(${PROJECT_SOURCE_DIR}/libs/rapidjson/include/)
 
 
 set(BPF_SRC ${PROJECT_SOURCE_DIR}/src/bpf/bpf_load.c ${PROJECT_SOURCE_DIR}/src/bpf/libbpf.c ${PROJECT_SOURCE_DIR}/src/bpf/nutria_bpf.c)

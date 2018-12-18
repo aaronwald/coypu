@@ -124,6 +124,7 @@ typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 typedef AdminManager<LogType> AdminManagerType;
+typedef OpenSSLManager <LogType> SSLType;
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
@@ -273,7 +274,7 @@ int main(int argc, char **argv)
 	}
 	
 	//ssl 
-	OpenSSLManager::Init();
+	SSLType::Init();
 	int rc = RAND_load_file("/dev/urandom", 32); // /dev/random can be slow
 	if(rc != 32) {
 		fprintf(stderr, "RAND_load_file fail.\n"); // ERR_*
@@ -519,8 +520,8 @@ int main(int argc, char **argv)
 
 	// ws-feed.pro.coinbase.com
 	std::function<int(int)> set_write = std::bind(&EventManagerType::SetWrite, eventMgr, std::placeholders::_1);
-	auto openSSLMgr = std::make_shared<OpenSSLManager>(set_write);
-	std::weak_ptr<OpenSSLManager> wOpenSSLMgr = openSSLMgr;
+	auto openSSLMgr = std::make_shared<SSLType>(wsLogger, set_write, "/etc/ssl/certs/"); 
+	std::weak_ptr<SSLType> wOpenSSLMgr = openSSLMgr;
 	
 	std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, wsManager, std::placeholders::_1);
 	std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, wsManager, std::placeholders::_1);
@@ -542,8 +543,8 @@ int main(int argc, char **argv)
 
 		openSSLMgr->Register(wsFD);
 
-		std::function <int(int,const struct iovec*,int)> sslReadCB = std::bind(&OpenSSLManager::ReadvNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
-		std::function <int(int,const struct iovec *,int)> sslWriteCB = std::bind(&OpenSSLManager::WritevNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+		std::function <int(int,const struct iovec*,int)> sslReadCB = std::bind(&SSLType::ReadvNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+		std::function <int(int,const struct iovec *,int)> sslWriteCB = std::bind(&SSLType::WritevNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
 
 		std::vector <std::string> symbolList;
 		std::vector <std::string> channelList;
@@ -627,7 +628,7 @@ int main(int argc, char **argv)
 						start = __rdtscp(&junk);
     					jd.Parse(jsonDoc);
 						end = __rdtscp(&junk);
-						// printf("%zu\n", (end-start));
+						//printf("%zu\n", (end-start));
 
 						const char * type = jd["type"].GetString();
 						if (!strcmp(type, "snapshot")) {
@@ -712,11 +713,6 @@ int main(int argc, char **argv)
 						} else if (!strcmp(type, "ticker")) {
 							const char *product = jd["product_id"].GetString();
 							const char *vol24 = jd["volume_24h"].GetString();
-							char pub[1024];
-							size_t len = ::snprintf(pub, 1024, "Vol %s %s", product, vol24);
-							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-							publish->Push(pub, len);
-							wsManager->SetWriteAll();
 							
 							// "best_ask":"6423.6",
 							// "best_bid":"6423.59",
@@ -761,8 +757,9 @@ int main(int argc, char **argv)
 							const char *h24 = jd.HasMember("high_24h") ? jd["high_24h"].GetString() : nullptr;
 							const char *l24 = jd.HasMember("low_24h") ? jd["low_24h"].GetString() : nullptr;
 							const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
+							const char *px = jd.HasMember("price") ? jd["price"].GetString() : nullptr;
 
-
+							// these are encoded as strings
 							if (h24) {
 								cc._high24 = atof(h24);
 							}
@@ -772,7 +769,11 @@ int main(int argc, char **argv)
 							}
 
 							if (v24) {
-								cc._vol24 = atof(v24);
+							  cc._vol24 = atof(v24);
+							}
+
+							if (px) {
+							  cc._last = atof(px);
 							}
 
 							if (jd.HasMember("sequence")) {
@@ -780,7 +781,17 @@ int main(int argc, char **argv)
 							}
 							
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							start = __rdtscp(&junk);
 							coinCache->Push(cc);
+							end = __rdtscp(&junk);
+							//printf("%zu\n", (end-start));
+
+							char pub[1024];
+							size_t len = ::snprintf(pub, 1024, "Vol %s %s %s", product, vol24, px);
+							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+							publish->Push(pub, len);
+							wsManager->SetWriteAll();
+
 						} else if (!strcmp(type, "subscriptions")) {
 							// skip
 						} else if (!strcmp(type, "heartbeat")) {

@@ -65,19 +65,21 @@ if __name__ == "__main__":
                 if l[0] == "Vol":
                     product = l[1]
                     if product not in products:
-                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-' }
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }
                         last_y = last_y + 1
                     products[product]['vol'] = l[2]
+                    products[product]['last'] = l[3]
 
 
                 if l[0] == "Tick":
                     product = l[1]
                     if product not in products:
-                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-' }
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }
                         last_y = last_y + 1
                     y = products[product]['y']
                     last_bid = products[product]['last_bid']
                     last_ask = products[product]['last_ask']
+                    last = products[product]['last']
                     stdscr.addstr(y, 0, product)
                     stdscr.clrtoeol()
 
@@ -109,8 +111,8 @@ if __name__ == "__main__":
                         f = "{:12.4f}".format(ask_qty)
                         stdscr.addstr(y, 60, f)
 
-                        vol = products[product]['vol']
-                        stdscr.addstr(y, 80, vol)
+                        last = products[product]['last']
+                        stdscr.addstr(y, 80, last)
 
                         products[product]['last_bid'] = bid_px
                         products[product]['last_ask'] = ask_px
