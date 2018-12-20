@@ -217,7 +217,7 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 	return nullptr;
 }
 
-int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const char *interface, uint16_t port) {
+int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::string &interface, uint16_t port) {
 	int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
 	if (sockFD < 0) {
 		logger->perror(errno, "CreateIPV4NonBlockSocket");
@@ -229,8 +229,9 @@ int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const char *
 		return -1;
 	}
 	struct sockaddr_in interface_in;
-	int ret = TCPHelper::GetInterfaceIPV4FromName (interface, strlen(interface), interface_in);
+	int ret = TCPHelper::GetInterfaceIPV4FromName (interface.c_str(), interface.length(), interface_in);
 	if (ret) {
+	  logger->error("Failed to find interface[{0}]", interface);
 		logger->perror(errno, "GetInterfaceIPV4FromName");
 		return -1;
 	}
@@ -369,7 +370,10 @@ int main(int argc, char **argv)
 	}
 
 
-	const char * interface = "enp0s3";
+	std::string interface;
+	config->GetValue("interface", interface);
+	assert(!interface.empty());
+
 	int sockFD = BindAndListen(a, interface, 8080);
 
 	std::shared_ptr<StoreType> store;

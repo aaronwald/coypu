@@ -4,7 +4,9 @@ loggers:
     level: debug
     file: websocket.log
 
-coypu: 
+interface: enp0s3
+
+coypu:
   websocket:
     logger: ws-logger
     cpu: 8
