@@ -72,6 +72,7 @@ target_link_libraries(coypu c)
 target_link_libraries(coypu gcc_s)
 target_link_libraries(coypu gcc)
 target_link_libraries(coypu coypurust)
+target_link_libraries(coypu coypuproto)
 
 add_executable(nutra_bpf_load ${BPF_SRC})
 target_link_libraries(nutra_bpf_load elf)
@@ -99,3 +100,5 @@ gtest_discover_tests(coyputest)
 
 
 add_subdirectory("${PROJECT_SOURCE_DIR}/src/kern")
+add_subdirectory("${PROJECT_SOURCE_DIR}/src/proto")
+

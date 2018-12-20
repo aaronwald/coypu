@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package coypu.msg;
+
+message CoinCache {
+		  string key           = 1;
+		  uint64 seqno         = 2;
+		  uint64 origseqno     = 3;
+		  uint32 seconds       = 4;
+		  uint32 milliseconds  = 5;
+		  double high24        = 6;
+		  double low24         = 7;
+		  double vol24         = 8;
+		  double open          = 9;
+		  double last          = 10;
+}

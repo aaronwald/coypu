@@ -1,0 +1,31 @@
+---
+loggers: 
+  ws-logger:
+    level: debug
+    file: websocket.log
+
+interface: eth0
+
+coypu:
+  websocket:
+    logger: ws-logger
+    cpu: 8
+
+do-gdax: true
+
+gdax-symbols: 
+  - BTC-USD
+  - BTC-EUR
+  - ETH-USD
+  - ETH-EUR
+  - ETH-BTC
+  - ZRX-USD
+  - EOS-USD
+  - BCH-USD
+
+gdax-channels:
+  - ticker
+  - heartbeat
+  - level2
+
+do-server-test: false
