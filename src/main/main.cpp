@@ -41,6 +41,8 @@
 #include "util/backtrace.h"
 #include "admin/admin.h"
 
+#include "proto/coincache.pb.h"
+
 using namespace rapidjson;
 // using json = nlohmann::json;
 
@@ -783,8 +785,13 @@ int main(int argc, char **argv)
 							if (jd.HasMember("sequence")) {
 								cc._origseqno = jd["sequence"].GetUint64();
 							}
+
+							coypu::msg::CoinCache gCC;
+							gCC.set_vol24(cc._vol24);
 							
+							// write protobuf to a websocket publish stream. doesnt need to be sequenced
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							
 							start = __rdtscp(&junk);
 							coinCache->Push(cc);
 							end = __rdtscp(&junk);
@@ -795,8 +802,6 @@ int main(int argc, char **argv)
 							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 							publish->Push(pub, len);
 							wsManager->SetWriteAll();
-
-
 						} else if (!strcmp(type, "subscriptions")) {
 							// skip
 						} else if (!strcmp(type, "heartbeat")) {

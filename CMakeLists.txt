@@ -3,6 +3,7 @@ project(coypu)
 include (CTest)
 include (GoogleTest)
 include (ExternalProject)
+FIND_PACKAGE(Protobuf REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
 
@@ -39,7 +40,7 @@ file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
 
 include_directories(${PROJECT_SOURCE_DIR}/src/main)
 include_directories(${PROJECT_SOURCE_DIR}/libs/rapidjson/include/)
-
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/src)
 
 set(BPF_SRC ${PROJECT_SOURCE_DIR}/src/bpf/bpf_load.c ${PROJECT_SOURCE_DIR}/src/bpf/libbpf.c ${PROJECT_SOURCE_DIR}/src/bpf/nutria_bpf.c)
 include_directories(${PROJECT_SOURCE_DIR}/src/bpf/)
@@ -56,8 +57,15 @@ ExternalProject_Add(rust_lib
 
 link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
 
+#get_cmake_property(_variableNames VARIABLES)
+#list (SORT _variableNames)
+#foreach (_variableName ${_variableNames})
+#    message(STATUS "${_variableName}=${${_variableName}}")
+#endforeach()
+
 add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
 add_dependencies(coypu rust_lib)
+
 target_link_libraries(coypu yaml)
 target_link_libraries(coypu pthread)
 target_link_libraries(coypu crypto)
@@ -72,6 +80,7 @@ target_link_libraries(coypu c)
 target_link_libraries(coypu gcc_s)
 target_link_libraries(coypu gcc)
 target_link_libraries(coypu coypurust)
+target_link_libraries(coypu protobuf)
 target_link_libraries(coypu coypuproto)
 
 add_executable(nutra_bpf_load ${BPF_SRC})
