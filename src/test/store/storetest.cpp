@@ -8,6 +8,7 @@ using namespace coypu::store;
 using namespace coypu::file;
 using namespace coypu::mem;
 
+
 TEST(StoreTest, Test1) 
 {
 	char buf[1024];
@@ -33,6 +34,21 @@ TEST(StoreTest, Test2)
 	for (int x = 0; x < 10000; ++x) {
 		ASSERT_EQ(store.Push("foo", 3), 0) << "Push [" << x << "] [" << buf << "]";
 	}
+
+	ASSERT_NO_THROW(FileUtil::Close(fd));
+	ASSERT_NO_THROW(FileUtil::Remove(buf));
+}
+
+TEST(StoreTest, StreamBufTest1) 
+{
+	char buf[1024];
+	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
+	ASSERT_TRUE(fd > 0);
+
+	typedef LogWriteBuf<FileUtil> buf_type;
+	std::shared_ptr<buf_type> sp = std::make_shared<buf_type>(MemManager::GetPageSize(), 0, fd, false);
+
+	logstreambuf<buf_type> csb(sp);
 
 	ASSERT_NO_THROW(FileUtil::Close(fd));
 	ASSERT_NO_THROW(FileUtil::Remove(buf));

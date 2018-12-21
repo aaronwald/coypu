@@ -640,7 +640,6 @@ int main(int argc, char **argv)
 						const char * type = jd["type"].GetString();
 						if (!strcmp(type, "snapshot")) {
 							const char *product = jd["product_id"].GetString();
-
 							bookMap[product] = std::make_shared<BookType>(); // create string
 							std::shared_ptr<BookType> book = bookMap[product];
 							assert(book);
@@ -669,6 +668,10 @@ int main(int argc, char **argv)
 							const char *product = jd["product_id"].GetString();
 							static std::string lookup;
 							lookup = product; // should call look.reserve(8);
+							if (bookMap.find(lookup) == bookMap.end()) {
+							  std::cerr << "Missing book " << lookup << std::endl;
+							  //							  return;
+							}
 							std::shared_ptr<BookType> book = bookMap[lookup];
 							assert(book);
 
@@ -787,7 +790,17 @@ int main(int argc, char **argv)
 							}
 
 							coypu::msg::CoinCache gCC;
+							gCC.set_high24(cc._high24);
+							gCC.set_low24(cc._low24);
 							gCC.set_vol24(cc._vol24);
+							gCC.set_last(cc._last);
+							std::string outStr;
+							if (gCC.SerializeToString(&outStr)) {
+							  
+							} else {
+							  assert(false);
+							}
+							
 							
 							// write protobuf to a websocket publish stream. doesnt need to be sequenced
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
@@ -883,5 +896,7 @@ int main(int argc, char **argv)
 	t1.join();
 	eventMgr->Close();
 
+	google::protobuf::ShutdownProtobufLibrary();
+	
 	return 0;
 }

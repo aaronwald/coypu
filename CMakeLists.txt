@@ -104,6 +104,8 @@ target_link_libraries(coyputest m)
 target_link_libraries(coyputest c)
 target_link_libraries(coyputest gcc_s)
 target_link_libraries(coyputest gcc)
+target_link_libraries(coyputest protobuf)
+target_link_libraries(coyputest coypuproto)
 
 gtest_discover_tests(coyputest)
 

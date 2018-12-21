@@ -10,10 +10,10 @@
 #include <queue>
 #include <deque>
 #include <memory>
+#include <streambuf>
 
 namespace coypu {
   namespace store {
-
     // Simpler to make this a rolling buffer 
     template <typename MMapProvider>
     class LogWriteBuf {
@@ -100,6 +100,31 @@ namespace coypu {
 
         std::pair<char *, off64_t> _dataPage;
     };
+
+	 
+	 template <typename LogStreamTrait>
+		class logstreambuf : public std::streambuf {
+	 public:
+		logstreambuf (const std::shared_ptr<LogStreamTrait> &stream) : _stream(stream) {
+		}
+		
+	 protected:
+		virtual std::streamsize xsputn(const char_type* s, std::streamsize n) override
+		{
+		  return _stream->Push(s, n);
+		};
+		
+		virtual int_type overflow (int_type c) override {
+		  if (c != EOF) {
+			 return _stream->Push(reinterpret_cast<char *>(&c), 1);
+		  } else {
+			 return 0;
+		  }
+		}
+		
+	 private:
+		const std::shared_ptr<LogStreamTrait> _stream;
+	 };
 
     // class LogReadPageBuf
     // map / remap

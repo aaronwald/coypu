@@ -9,6 +9,7 @@
 #include <functional>
 #include <string>
 #include <iostream>
+#include <streambuf>
 
 namespace coypu {
     namespace cache {
@@ -89,7 +90,7 @@ namespace coypu {
         std::ostream& operator<<  (std::ostream& os, const SequenceCache<CacheType, SizeCheck, LogStreamTrait, MergeTrait> & cache) {
             cache.Dump(os);
             return os;
-        }  
+        }
     }
 }
 

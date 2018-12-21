@@ -747,7 +747,7 @@ namespace coypu
                             } else {
 
                                 if(!AddHeader(header, offset, con)) {
-                                    _logger->error("Add header failed.");
+											 _logger->error("Add header failed [{0}].", header);
                                 }
                             }
                         }
