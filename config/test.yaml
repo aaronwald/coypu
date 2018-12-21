@@ -5,6 +5,8 @@ loggers:
     file: websocket.log
 
 interface: enp0s3
+coypu-publish-path: stream/publish/data
+
 
 coypu:
   websocket:

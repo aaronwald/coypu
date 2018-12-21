@@ -425,11 +425,15 @@ int main(int argc, char **argv)
 	};
 
 	// BEGIN Websocket Server Test
-	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_PUBLISH_PATH); 
+	std::string publish_path;
+	config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
+	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
 	assert(publishStreamSP != nullptr);
 	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
-	
-	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(COYPU_CACHE_PATH); 
+
+	std::string cache_path;
+	config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
+	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
 	assert(cacheStreamSP != nullptr);
 
 	std::shared_ptr<CacheType> coinCache = std::make_shared<CacheType>(cacheStreamSP);

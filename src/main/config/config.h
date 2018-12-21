@@ -85,6 +85,17 @@ namespace coypu {
                     return false;
                 }
 
+					 template <typename T> 
+						const bool GetValue (const std::string & key, T &out, const T &defaultValue) {
+                    auto i = _maps.find(key);
+                    if (i != _maps.end()) {
+                        out =  (*i).second->GetValue();
+                        return true;
+                    }
+						  out = defaultValue;
+                    return true;
+                }
+
                 void GetKeys (std::vector<std::string> & out) const {
                     for (auto i = _maps.begin(); i != _maps.end(); ++i) {
                         out.push_back((*i).first);

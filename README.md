@@ -16,6 +16,6 @@ sudo iptables -P FORWARD ACCEPT
 docker system prune -a
 docker build -t coypu .
 docker run --dns 8.8.8.8 --rm -t coypu 
-docker run --dns 8.8.8.8 --rm -i -t coypu --entrypoint /bin/bash
+docker run --dns 8.8.8.8 --rm -i -t coypu /bin/bash
 ```
 cmake --help-module FindProtobuf
