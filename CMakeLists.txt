@@ -3,7 +3,6 @@ project(coypu)
 include (CTest)
 include (GoogleTest)
 include (ExternalProject)
-FIND_PACKAGE(Protobuf REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
 
@@ -108,7 +107,6 @@ target_link_libraries(coyputest protobuf)
 target_link_libraries(coyputest coypuproto)
 
 gtest_discover_tests(coyputest)
-
 
 add_subdirectory("${PROJECT_SOURCE_DIR}/src/kern")
 add_subdirectory("${PROJECT_SOURCE_DIR}/src/proto")
