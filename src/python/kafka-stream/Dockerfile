@@ -1,6 +1,7 @@
 FROM python:3
-RUN pip install flask
-RUN pip install kafka-python
-RUN pip install websocket-client
+COPY requirements.txt .
+RUN pip install -U pip
+RUN pip install -r requirements.txt
 COPY coypu_kafka.py .
 CMD python3 coypu_kafka.py
+	 

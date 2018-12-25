@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
             if doc:
                 l = doc.split(' ')
-                if l[0] == "Vol":
+                if l[0] == "Trade":
                     product = l[1]
                     if product not in products:
                         products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }

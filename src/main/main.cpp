@@ -767,11 +767,13 @@ int main(int argc, char **argv)
 									}
 								}
 							}
-
+							
+							const uint64_t tradeId = jd.HasMember("trade_id") ? jd["trade_id"].GetUint64() : UINT64_MAX;
 							const char *h24 = jd.HasMember("high_24h") ? jd["high_24h"].GetString() : nullptr;
 							const char *l24 = jd.HasMember("low_24h") ? jd["low_24h"].GetString() : nullptr;
 							const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
 							const char *px = jd.HasMember("price") ? jd["price"].GetString() : nullptr;
+							const char *lastSize = jd.HasMember("last_size") ? jd["last_size"].GetString() : nullptr;
 
 							if (h24) {
 								cc._high24 = atof(h24);
@@ -814,11 +816,13 @@ int main(int argc, char **argv)
 							end = __rdtscp(&junk);
 							//printf("%zu\n", (end-start));
 
-							char pub[1024];
-							size_t len = ::snprintf(pub, 1024, "Vol %s %s %s", product, vol24, px);
-							WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-							publish->Push(pub, len);
-							wsManager->SetWriteAll();
+							if (tradeId != UINT64_MAX) {
+							  char pub[1024];
+							  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
+							  WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+							  publish->Push(pub, len);
+							  wsManager->SetWriteAll();
+							}
 						} else if (!strcmp(type, "subscriptions")) {
 							// skip
 						} else if (!strcmp(type, "heartbeat")) {
