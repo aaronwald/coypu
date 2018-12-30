@@ -201,17 +201,17 @@ namespace coypu
                         
                         int r = 0;
                         if (con->_stream && (con->_state == WS_CS_OPEN || con->_state == WS_CS_OPEN_DATA)) {
-                            r = con->_stream->Readv(fd, con->_readv);
+								  r = con->_stream->Readv(fd, con->_readv);
                         } else {
-                            r = con->_httpBuf->Readv(fd, con->_readv);
+								  r = con->_httpBuf->Readv(fd, con->_readv);
                         }
+
 
                         if (r < 0) return -3;
                         
                         if (con->_state == WS_CS_CONNECTING) {
                             int r = HandleHTTP(con);
                             if (r < 0) return r;
-
                         }
 								
 								while (ProcessState(con)) {
@@ -414,7 +414,7 @@ namespace coypu
                     static inline void Unmask (const WebSocketFrame &frame, char *data, size_t len) {
                         for (size_t i = 0; i < len; ++i) data[i] ^= frame._mask[i%WS_MASK_LEN];
                     }
-
+						  
                     static inline void PushMask (std::shared_ptr<con_type> &con , const char *data, size_t len) {
                         for (size_t i = 0; i < len; ++i) {
                             con->_writeBuf->Push(data[i] ^ con->_mask[i%WS_MASK_LEN]);
@@ -461,7 +461,10 @@ namespace coypu
 
                             if (con->_frame._opcode == WS_OP_TEXT_FRAME) {
                                 if (con->_onText) {
-                                    con->_onText(offset, con->_frame._len);
+											 if (con->_frame._masked) {
+												buf->Unmask(offset, con->_frame._len, con->_frame._mask, WS_MASK_LEN);
+											 }
+											 con->_onText(offset, con->_frame._len);
                                 }
                             } else if (con->_frame._opcode == WS_OP_CONTINUATION) {
                                 _logger->debug("Continutation");
@@ -485,16 +488,16 @@ namespace coypu
 
                     template <typename T>
                     int DoOpen (T &buf,std::shared_ptr<con_type> &con) {
-                        uint32_t avail =buf->Available();
+                        uint32_t avail = buf->Available();
                         // check if state is read header or read data (can differ if not available)
                         if (avail >= 2) {
                             char peaklen = 0;
+								
                             if (!buf->Peak(1, peaklen)) {
                                 return 0; // error
                             }
-
+								 
                             uint8_t len = 0x7F & peaklen;
-
                             uint64_t needed = 2 + (peaklen & 0x80 ? 4 : 0); // check masked
 
                             if (len == WS_PAYLOAD_16) {
@@ -503,6 +506,8 @@ namespace coypu
                             } else if (len == WS_PAYLOAD_64) {
                                 needed += 8;
                             }
+
+																						 
 
                             if (needed <= avail) {
                                 // read header and set state
@@ -563,7 +568,7 @@ namespace coypu
                                     if (checkOrigin && con->HasHeader(HEADER_ORIGIN)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_SEC_WEBSOCKET_KEY)) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_SEC_WEBSOCKET_VERSION)) ++checkHeaderCount;
-                                    _logger->debug("Check count {}", checkHeaderCount);
+                                    _logger->debug("Server check count {}", checkHeaderCount);
 
                                     if (con->_method == "GET" && con->_version == "HTTP/1.1" && checkHeaderCount == neededCount) {
                                         std::string wskey;
@@ -589,8 +594,20 @@ namespace coypu
                                         int r = snprintf(keyHeader, 1024, "%s: %s\r\n", HEADER_SEC_WEBSOCKET_ACCEPT, newKey.c_str());
                                         con->_writeBuf->Push(keyHeader, r); // Sec-WebSocket-Accept: key\r\n
                                         con->_writeBuf->Push(HEADER_HTTP_NEWLINE, HEADER_HTTP_NEWLINE_LEN); // \r\n
-                                        _logger->info("Open {0}", con->_fd);
+                                        _logger->info("Open Client {0}", con->_fd);
                                         con->_state = WS_CS_OPEN;
+													 
+													 if (con->_onOpen) {
+														con->_onOpen(con->_fd);
+													 }
+
+													 if (con->_stream) {
+														std::function<bool(const char *, uint64_t)> copyCB = [&con] (const char *d, uint64_t len) {
+														  return con->_stream->Push(d, len);
+														};
+														con->_httpBuf->PopAll(copyCB, con->_httpBuf->Available());
+													 }
+
                                         _set_write(con->_fd);
                                     }
                                 } else {
@@ -600,6 +617,7 @@ namespace coypu
                                     if (con->HasHeader("Upgrade")) ++checkHeaderCount;
                                     if (con->HasHeader("Connection")) ++checkHeaderCount;
                                     if (con->HasHeader(HEADER_SEC_WEBSOCKET_ACCEPT)) ++checkHeaderCount;
+												_logger->debug("Client check count {}", checkHeaderCount);
                                     if (checkHeaderCount == 4) {
                                         if (con->_responsecode == "101" && con->_version == "HTTP/1.1") {
                                             std::string wskey;
@@ -647,9 +665,9 @@ namespace coypu
                             {
                                 int r = 0;
                                 if (con->_stream) {
-                                    r = DoOpen(con->_stream, con);
+											 r = DoOpen(con->_stream, con);
                                 } else {
-                                    r = DoOpen(con->_httpBuf, con);
+											 r = DoOpen(con->_httpBuf, con);
                                 }
                                 if (r == 0) return false;
                                 else if (con->_state != WS_CS_OPEN_DATA) return false; // wait for more data  

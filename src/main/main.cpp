@@ -21,6 +21,7 @@
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
+#include "rapidjson/error/en.h"
 
 #include "coypu/coypu.h"
 #include "coypu/spdlogger.h"
@@ -117,11 +118,19 @@ struct CoinCache {
 // Coypu Types
 typedef std::shared_ptr<SPDLogger> LogType;
 typedef coypu::event::EventManager<LogType> EventManagerType;
-typedef coypu::store::LogRWStream<FileUtil, coypu::store::LRUCache, 128> RWBufType;
+
+typedef coypu::store::LogRWStream<MMapShared, coypu::store::LRUCache, 128> RWBufType;
 typedef coypu::store::PositionedStream <RWBufType> StreamType;
+
+typedef coypu::store::LogRWStream<MMapAnon, coypu::store::OneShotCache, 128> AnonRWBufType;
+typedef coypu::store::PositionedStream <AnonRWBufType> AnonStreamType;
+
 typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
-typedef LogWriteBuf<FileUtil> StoreType;
+
+typedef coypu::http::websocket::WebSocketManager <LogType, AnonStreamType, PublishStreamType> AnonWebSocketManagerType;
+
+typedef LogWriteBuf<MMapShared> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
@@ -208,7 +217,7 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
 
-				std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd);
+				std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd, false);
 				streamSP = std::make_shared<StreamType>(bufSP);
 			} else {
 				return nullptr;
@@ -217,6 +226,15 @@ std::shared_ptr <StreamType> CreateStore (const std::string &name) {
 		}
 	}
 	return nullptr;
+}
+
+template <typename StreamType, typename BufType>
+std::shared_ptr <StreamType> CreateAnonStore () {
+	int pageMult = 64;
+	size_t pageSize = pageMult * MemManager::GetPageSize();
+	off64_t curSize = 0;
+	std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, -1, true);
+	return std::make_shared<StreamType>(bufSP);
 }
 
 int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::string &interface, uint16_t port) {
@@ -412,8 +430,10 @@ int main(int argc, char **argv)
 
 	std::function<int(int)> set_write_ws = std::bind(&EventManagerType::SetWrite, eventMgr, std::placeholders::_1);
 	std::shared_ptr<WebSocketManagerType> wsManager = std::make_shared<WebSocketManagerType>(wsLogger, set_write_ws);
+	std::shared_ptr<AnonWebSocketManagerType> wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, set_write_ws);
 
 	std::weak_ptr<WebSocketManagerType> wWsManager = wsManager;
+	std::weak_ptr<AnonWebSocketManagerType> wAnonWsManager = wsAnonManager;
 	std::weak_ptr <EventManagerType> wEventMgr = eventMgr;
 
 	std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) {
@@ -458,7 +478,10 @@ int main(int argc, char **argv)
 	// coinCache->Dump(std::cout);
 	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 
-	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wWsManager, readvCB, writevCB](int fd) {
+	// TODO Fix . Only here for holding onto the SP until we work out why we cant pass to websocket
+	auto txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+
+	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wAnonWsManager, readvCB, writevCB, txtBuf](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
 
@@ -468,16 +491,18 @@ int main(int argc, char **argv)
 		}
 
 		auto eventMgr = wEventMgr.lock();
-		auto wsManager = wWsManager.lock();
+		auto wsManager = wAnonWsManager.lock();
 		auto publish = wPublishStreamSP.lock();
 
 		if (eventMgr && wsManager && publish) {
-			publish->Register(clientfd);
+		  uint64_t offset = 0;
+		  // restarts publish from 0
+		  publish->Register(clientfd, offset);
 
-			std::function<int(int)> readCB = std::bind(&WebSocketManagerType::Read, wsManager, std::placeholders::_1);
-			std::function<int(int)> writeCB = std::bind(&WebSocketManagerType::Write, wsManager, std::placeholders::_1);
-			std::function<int(int)> closeCB = [wWsManager, wPublishStreamSP] (int fd) {
-				auto wsManager = wWsManager.lock();
+			std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, wsManager, std::placeholders::_1);
+			std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, wsManager, std::placeholders::_1);
+			std::function<int(int)> closeCB = [wAnonWsManager, wPublishStreamSP] (int fd) {
+				auto wsManager = wAnonWsManager.lock();
 				if (wsManager) {
 					wsManager->Unregister(fd);
 				}
@@ -487,15 +512,39 @@ int main(int argc, char **argv)
 				}
 				return 0;
 			};
-			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
 
-			wsManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, nullptr, nullptr, publish);	
+
+			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
+			std::function <void(uint64_t, uint64_t)> onText = [&txtBuf] (uint64_t offset, off64_t len) {
+			  // could do something with a request from client here. json sub msg? with mark
+			  char jsonDoc[1024*1024] = {};
+			  if (len < sizeof(jsonDoc)) {
+				 // sad copying but nice json library
+				 if(txtBuf->Pop(jsonDoc, offset, len)) {
+					jsonDoc[len] = 0;
+					std::cout << "onText [" << jsonDoc << "]" << std::endl;
+					Document jd;
+					if (!jd.Parse(jsonDoc).HasParseError()) {
+					} else {
+					  fprintf(stderr, "\nError(offset %u): %s\n", 
+								 (unsigned)jd.GetErrorOffset(),
+								 GetParseError_En(jd.GetParseError()));
+					}
+				 } else {
+					std::cout << "pop fail" << std::endl;
+				 }
+			  }
+
+			  return;
+			};
+
+			wsManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, publish);	
 			eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 
 			int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
 			TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
 
-			std::function<int(int)> readTimerCB = [wEventMgr, wPublishStreamSP, wWsManager, clientfd] (int fd) {
+			std::function<int(int)> readTimerCB = [wEventMgr, wPublishStreamSP, clientfd] (int fd) {
 				uint64_t x;
 				if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
 					// TODO some error
@@ -601,7 +650,7 @@ int main(int argc, char **argv)
 				FileUtil::GetSize(fd, curSize);
 				a->info("Current size [{0}]", curSize);
 
-				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd);
+				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
 				streamSP = std::make_shared<StreamType>(bufSP);
 			} else {
 				a->perror(errno, "Open");
@@ -640,6 +689,7 @@ int main(int argc, char **argv)
     					jd.Parse(jsonDoc);
 						end = __rdtscp(&junk);
 						//printf("%zu\n", (end-start));
+					 
 
 						const char * type = jd["type"].GetString();
 						if (!strcmp(type, "snapshot")) {
@@ -712,7 +762,7 @@ int main(int argc, char **argv)
 								book->BestAsk(ask);
 								char pub[1024];
 								size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
-															bid.qty, bid.px, ask.px, ask.qty);
+																bid.qty, bid.px, ask.px, ask.qty);
 								WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 								publish->Push(pub, len);
 								wsManager->SetWriteAll();

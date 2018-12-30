@@ -1,7 +1,7 @@
 #ifndef __COYPU_STORE_H
 #define __COYPU_STORE_H
 
-#include <stdio.h>
+#include <iostream>
 #include <sys/uio.h>
 #include <string.h>
 #include <functional>
@@ -18,12 +18,12 @@ namespace coypu {
     template <typename MMapProvider>
     class LogWriteBuf {
       public:
-        LogWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly) :
-          _pageSize(pageSize), _offset(offset), _fd(fd), _readOnly(readOnly), _dataPage(nullptr, 0)  { 
+		LogWriteBuf (off64_t pageSize, off64_t offset, int fd, bool readOnly, bool anonymous) :
+		_pageSize(pageSize), _offset(offset), _fd(fd), _readOnly(readOnly), _dataPage(nullptr, 0), _anonymous(anonymous)  { 
         }
 
         virtual ~LogWriteBuf () {
-          if (_dataPage.first) {
+          if (!_anonymous && _dataPage.first) {
             MMapProvider::MUnmap(_dataPage.first, _pageSize);
           }
         }
@@ -67,24 +67,40 @@ namespace coypu {
           return r; // can overflow
         }
 
+		  template <typename CacheType>
+			 void CachePage(CacheType &cache) {
+			 cache.AddPage(_dataPage.first, _dataPage.second);
+		  }
+
+		  void SetAllocateCB (std::function<void(char *, off64_t)> &allocate_cb) {
+			 _allocate_cb = allocate_cb;
+		  }
+
       private:
         LogWriteBuf (const LogWriteBuf &other);
         LogWriteBuf &operator= (const LogWriteBuf &other);
 
         int AllocatePage () {
-          if (MMapProvider::Truncate(_fd, _offset+_pageSize)) {
-            return -1;
-          }
+			 if (!_anonymous) {
+				if (MMapProvider::Truncate(_fd, _offset+_pageSize)) {
+				  return -1;
+				}
+				
+				if (MMapProvider::LSeekSet(_fd, _offset) != _offset) {
+				  return -2;
+				}
 
-          if (MMapProvider::LSeekSet(_fd, _offset) != _offset) {
-            return -2;
-          }
+				if (_dataPage.first) {
+				  MMapProvider::MUnmap(_dataPage.first, _pageSize);
+				}
+			 }
 
-          if (_dataPage.first) {
-            MMapProvider::MUnmap(_dataPage.first, _pageSize);
-          }
-            
-          _dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapSharedWrite(_fd, _offset, _pageSize));
+			 _dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapWrite(_fd, _offset, _pageSize));
+
+			 if (_allocate_cb) {
+				_allocate_cb(_dataPage.first, _offset);
+			 }
+			 
           if (!_dataPage.first) {
             return -3;
           }
@@ -97,8 +113,9 @@ namespace coypu {
         off64_t _offset;
         int _fd;
         bool _readOnly;
-
         std::pair<char *, off64_t> _dataPage;
+		  bool _anonymous;
+		  std::function<void(char *, off64_t)> _allocate_cb;
     };
 
 	 
@@ -136,6 +153,12 @@ namespace coypu {
           _dataPage(nullptr, UINT64_MAX) {
         }
 
+			 LogReadPageBuf (off64_t pageSize, char *page, uint64_t offset) : 
+          _pageSize(pageSize),
+				_dataPage(page, offset) {
+        }
+
+
         virtual ~LogReadPageBuf () {
           MMapProvider::MUnmap(_dataPage.first, _pageSize);
         }
@@ -145,7 +168,9 @@ namespace coypu {
             MMapProvider::MUnmap(_dataPage.first, _pageSize);
 
             _dataPage.second = offset;
-            _dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapSharedRead(fd, _dataPage.second, _pageSize));
+				assert(fd >= 0);
+				_dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapRead(fd, _dataPage.second, _pageSize));
+
             if (!_dataPage.first) {
               return -3;
             }
@@ -189,6 +214,25 @@ namespace coypu {
           ::memcpy(dest, &_dataPage.first[start-_dataPage.second], outSize);
           return true;
         }
+		  
+		  bool Unmask (uint64_t start, uint64_t &maskPos, const char *mask, const int maskLen, uint64_t size, uint64_t &outSize) {
+          if (!_dataPage.first) {
+            return false;
+          }
+
+          if (start < _dataPage.second || start > (_dataPage.second+ _pageSize)) return false;
+
+          outSize = std::min(size, _pageSize - (start-_dataPage.second));
+
+			 //::memcpy(dest, &_dataPage.first[start-_dataPage.second], outSize);
+			 for (uint64_t i = start-_dataPage.second; i < (start-_dataPage.second)+outSize; ++i) {
+				_dataPage.first[i] ^= mask[maskPos%maskLen];
+				++maskPos;
+			 }				
+			 
+          return true;
+        }
+
 
         // Absolute offset
         int Writev (uint64_t start, int fd, std::function <int(int, const struct iovec *, int)> &cb, uint64_t size) {
@@ -211,6 +255,14 @@ namespace coypu {
 
         }
 
+		  off64_t GetOffset () {
+			 return _dataPage.second;
+		  }
+
+		  void Unmap() {
+			 MMapProvider::MUnmap(_dataPage.first, _pageSize);
+		  }
+
       private:
         LogReadPageBuf (const LogReadPageBuf &other);
         LogReadPageBuf &operator= (const LogReadPageBuf &other);
@@ -219,10 +271,85 @@ namespace coypu {
         std::pair<char *, off64_t> _dataPage;
     };
 
+	 // TODO one shot cache.  Dont call Map on LogReadPageBuf.
+	 // When we read , we go through the offsets, and unmap anything old
+	 // problem is the writebuf might call unmap unless we disable for anonymous
+	 // one shot cache needs to clean up pages
+	 template<typename MMapProvider, int CachePages>
+		class OneShotCache {
+      public:
+        typedef LogReadPageBuf <MMapProvider> store_type;
+        typedef std::shared_ptr<store_type> page_type; 
+        typedef std::pair<uint32_t, page_type> pair_type;
+        typedef std::shared_ptr<pair_type> read_cache_type;
+        typedef uint32_t page_offset_type;
+        typedef uint64_t offset_type;
+
+        OneShotCache (off64_t pageSize, off64_t maxSize, int fd) : _pageSize(pageSize) {
+        }
+
+		  virtual ~OneShotCache () {
+			 while (!_pages.empty()) {
+				_pages.front()->second->Unmap();
+				_pages.pop_front();
+			 }
+		  }
+
+		  int PeakPage (offset_type offset, read_cache_type &page) {
+			 auto b = _pages.begin();
+			 auto e = _pages.end();
+
+			 for (;b != e; ++b) {
+				if (offset >= (*b)->first && offset < (*b)->first + _pageSize) {
+				  page = *b;
+				  return 0;
+				}
+			 }
+
+			 return -1;
+		  }
+				  
+		  int FindPage (offset_type offset, read_cache_type &page) {
+			 while (!_pages.empty() && offset >= (_pages.front()->first + _pageSize)) {
+				_pages.front()->second->Unmap();
+				_pages.pop_front();
+
+			 }
+
+			 if (!_pages.empty()) {
+				if (offset >= _pages.front()->first &&
+					 offset < _pages.front()->first + _pageSize) {
+				  page= _pages.front();
+				  return 0;
+				}
+			 }
+			 
+			 return -1;
+		  }
+
+		  void AddPage (char *p, off64_t o) {
+			 assert((o % _pageSize) == 0);
+			 if (!_pages.empty()) {
+				assert(_pages.back()->second->GetOffset() < o);
+			 }
+
+			 page_type page = std::make_shared<store_type>(_pageSize, p, o);
+			 read_cache_type rc = std::make_shared<pair_type>(std::make_pair(o, page));
+			 
+			 _pages.push_back(rc);
+		  }
+		  
+	 private:
+		  OneShotCache (const OneShotCache &other);
+		  OneShotCache &operator= (const OneShotCache &other);
+
+		  uint64_t _pageSize;
+		  std::deque<read_cache_type> _pages;
+	 };
+		  
     template<typename MMapProvider, int CachePages>
     class LRUCache {
       public:
-
         typedef LogReadPageBuf <MMapProvider> store_type;
         typedef std::shared_ptr<store_type> page_type; 
         typedef std::pair<uint32_t, page_type> pair_type;
@@ -237,6 +364,10 @@ namespace coypu {
 
         virtual ~LRUCache () {
         }
+
+		  int PeakPage (offset_type offset, read_cache_type &page) {
+			 return FindPage(offset, page);
+		  }
 
         int FindPage (offset_type offset, read_cache_type &page) {
           page_offset_type pageIndex = offset / _pageSize;
@@ -265,6 +396,7 @@ namespace coypu {
             page_type psp = std::make_shared<store_type>(_pageSize);
             page = std::make_shared<pair_type>(std::make_pair(pageIndex, psp)); // allocate new page
           }
+			 
           if(page->second->Map(_fd, pageIndex * _pageSize) == 0) {
             _lruReadCache.push_front(page); // add to front
             return 0;
@@ -274,6 +406,10 @@ namespace coypu {
 
           return -1;
         }
+
+		  void AddPage (char *, off64_t) {
+			 // nop
+		  }
 
       private:
         LRUCache (const LRUCache &other);
@@ -298,13 +434,22 @@ namespace coypu {
 
         typedef LogRWStream<MMapProvider, ReadCache, CacheSize> log_type;
 
-        LogRWStream (off64_t pageSize, offset_type offset, int fd, offset_type maxSize = UINT64_MAX) :
-          _writeBuf(pageSize, offset, fd, false),
+		  // anonymous=true will keep writebuf from unmap the write page
+        LogRWStream (off64_t pageSize, offset_type offset, int fd, bool anonymous, offset_type maxSize = UINT64_MAX) :
+		  _writeBuf(pageSize, offset, fd, false, anonymous),
           _readCache(pageSize, CacheSize, fd),
           _pageSize(pageSize),
           _available(offset),
           _fd(fd),
           _maxSize(maxSize) {
+				if (!anonymous) {
+				  assert(_fd > 0);
+				}
+
+				std::function<void(char *, off64_t)> cb = [this] (char *page, off64_t offset) {
+				  this->_readCache.AddPage(page, offset);
+				};
+				_writeBuf.SetAllocateCB(cb);
         }
 
         virtual ~LogRWStream () {
@@ -396,17 +541,42 @@ namespace coypu {
 
         int Readv (int fd, std::function <int(int, const struct iovec *, int)> &cb) {
           int r = _writeBuf.Readv(fd, cb);
+			 // LRU will ignore, 
           if (r > 0) _available += r;
           return r;
         }
 
         bool Peak (offset_type offset, char &d) {
           typename read_cache_type::read_cache_type page;
-          if (_readCache.FindPage(offset, page)) return false;
+			 if (_readCache.PeakPage(offset, page)) return false;
           if (offset >= _available) return false;
 
           return page ? page->second->Peak(offset, d) : false;
         }
+
+		  bool Unmask (offset_type start_offset, offset_type len, const char *mask, int maskLen) {
+			 page_offset_type startPage = start_offset / _pageSize;
+			 page_offset_type maxPage = _available / _pageSize;
+          typename read_cache_type::read_cache_type page;
+
+          uint64_t read = 0, out_size = 0;
+			 uint64_t maskPos = 0;
+          for (page_offset_type i = startPage; i <= maxPage; ++i) {
+            offset_type pageStart = i * _pageSize;
+
+            if (_readCache.PeakPage(pageStart, page) == 0) {
+              offset_type start_pos = std::max(start_offset, pageStart); 
+
+              if (page->second && page->second->Unmask(start_pos, maskPos, mask, maskLen, len-read, out_size)) {
+                read += out_size;
+                if (read == len) return true;
+              } else {
+                return false;
+              }
+            }
+          } 
+          return false;
+		  }
         
         bool Find (offset_type start_offset, char d, offset_type &offset) {
           page_offset_type startPage = start_offset / _pageSize;
@@ -445,7 +615,7 @@ namespace coypu {
               // offset_type end_pos   = std::min(end_offset, pageEnd); - not needed?
             
               // Pop will only return min(page_size, size-read)
-              if (page->second->Pop (start_pos, &dest[read], size-read, out_size)) {
+              if (page->second && page->second->Pop (start_pos, &dest[read], size-read, out_size)) {
                 read += out_size;
                 if (read == size) return true;
               } else {
@@ -515,9 +685,13 @@ namespace coypu {
           return _stream->Available() - _curOffset;
         }
 
-        bool Peak (typename S::offset_type  offset, char &d) {
+        bool Peak (typename S::offset_type offset, char &d) {
           return _stream->Peak(_curOffset+offset, d);
         }
+
+		  bool Unmask (typename S::offset_type offset, typename S::offset_type len, const char *mask, int maskLen) {
+			 return _stream->Unmask(offset, len, mask, maskLen);
+		  }
         
         bool Find (typename S::offset_type  start_offset, char d, typename S::offset_type  &offset) {
           return _stream->Find(_curOffset+start_offset, d, offset);
@@ -593,9 +767,9 @@ namespace coypu {
           return _stream->Push(data, len);
         }
 
-        int Register (int fd) {
+        int Register (int fd, uint64_t offset) {
             _curOffsets.resize(fd+1, UINT64_MAX);
-            _curOffsets[fd] = 0;
+            _curOffsets[fd] = offset;
             return 0;
         }
 

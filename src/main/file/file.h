@@ -29,12 +29,40 @@ namespace coypu {
       static off64_t LSeekSet (int fd, off64_t offset);
       static ssize_t Write (int fd, const char *buf, size_t count);
       static ssize_t Read (int fd, void *buf, size_t count);
-
-      // MMap
-      static void *MMapSharedRead (int fd, off64_t offset, size_t len);
-      static void *MMapSharedWrite (int fd, off64_t offset, size_t len);
-      static int MUnmap (void *addr, size_t len);
     };
+
+	 class MMapShared {
+    public:
+      MMapShared() = delete;
+      ~MMapShared () = delete;
+      MMapShared (const MMapShared &other) = delete;
+      MMapShared &operator= (const MMapShared &other) = delete;
+      MMapShared (MMapShared &&) = delete;
+      MMapShared &operator= (MMapShared &&) = delete;
+
+		static void * MMapRead (int fd, off64_t offset, size_t len);
+      static void * MMapWrite (int fd, off64_t offset, size_t len);
+      static int MUnmap (void *addr, size_t len);
+		static off64_t LSeekSet (int fd, off64_t offset);
+		static int Truncate (int fd, off64_t offset);
+	 };
+	 
+	 class MMapAnon {
+    public:
+      MMapAnon() = delete;
+      ~MMapAnon () = delete;
+      MMapAnon (const MMapAnon &other) = delete;
+      MMapAnon &operator= (const MMapAnon &other) = delete;
+      MMapAnon (MMapAnon &&) = delete;
+      MMapAnon &operator= (MMapAnon &&) = delete;
+
+		static void * MMapRead (int fd, off64_t offset, size_t len);
+      static void * MMapWrite (int fd, off64_t offset, size_t len);
+      static int MUnmap (void *addr, size_t len);
+		static off64_t LSeekSet (int fd, off64_t offset);
+		static int Truncate (int fd, off64_t offset);
+	 };
+
   }
 }
 

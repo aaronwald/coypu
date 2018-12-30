@@ -87,15 +87,42 @@ int FileUtil::GetSize (int fd, off64_t &offset) {
   return i;
 }
 
-void * FileUtil::MMapSharedWrite (int fd, off64_t offset, size_t len) {
+void * MMapShared::MMapWrite (int fd, off64_t offset, size_t len) {
   return ::mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
 }
 
-void * FileUtil::MMapSharedRead (int fd, off64_t offset, size_t len) {
-  return ::mmap(nullptr, len, PROT_WRITE, MAP_SHARED, fd, offset);
+void * MMapShared::MMapRead (int fd, off64_t offset, size_t len) {
+  return ::mmap(nullptr, len, PROT_READ, MAP_SHARED, fd, offset);
 }
 
-int FileUtil::MUnmap (void *addr, size_t len) {
+int MMapShared::MUnmap (void *addr, size_t len) {
   return ::munmap(addr, len);
 }
 
+off64_t MMapShared::LSeekSet (int fd, off64_t offset) {
+  return FileUtil::LSeekSet(fd, offset);
+}
+
+int MMapShared::Truncate (int fd, off64_t offset) {
+  return FileUtil::Truncate(fd, offset);
+}
+
+void * MMapAnon::MMapWrite (int fd, off64_t offset, size_t len) {
+  return ::mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+
+void * MMapAnon::MMapRead (int fd, off64_t offset, size_t len) {
+  return ::mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+
+int MMapAnon::MUnmap (void *addr, size_t len) {
+  return ::munmap(addr, len);
+}
+
+off64_t MMapAnon::LSeekSet (int fd, off64_t offset) {
+  return FileUtil::LSeekSet(fd, offset);
+}
+
+int MMapAnon::Truncate (int fd, off64_t offset) {
+  return FileUtil::Truncate(fd, offset);
+}

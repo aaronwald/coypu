@@ -4,13 +4,15 @@ from Queue import Queue
 from websocket import create_connection
 from threading import Thread
 import curses
+import json
 
 stopped = False
 ws_queue = Queue()
 
 def do_websocket():
     ws = create_connection("ws://localhost:8080/websocket")
-    ws.send("Hello, World")
+    ws.send(json.dumps({"foo": "bar"}))
+    ws.send(json.dumps(range(0,10)))
 
     while not stopped:
         result =  ws.recv()

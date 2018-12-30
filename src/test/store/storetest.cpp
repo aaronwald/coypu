@@ -1,3 +1,4 @@
+#include <memory>
 
 #include "gtest/gtest.h"
 #include "store/store.h"
@@ -15,7 +16,7 @@ TEST(StoreTest, Test1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(),  0, fd, false);
+	LogWriteBuf<MMapShared> store(MemManager::GetPageSize(),  0, fd, false, false);
 
 	EXPECT_EQ(store.Push("foo", 3), 0) << buf;
 
@@ -29,7 +30,7 @@ TEST(StoreTest, Test2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<MMapShared> store(MemManager::GetPageSize(), 0, fd, false, false);
 
 	for (int x = 0; x < 10000; ++x) {
 		ASSERT_EQ(store.Push("foo", 3), 0) << "Push [" << x << "] [" << buf << "]";
@@ -39,14 +40,15 @@ TEST(StoreTest, Test2)
 	ASSERT_NO_THROW(FileUtil::Remove(buf));
 }
 
+
 TEST(StoreTest, StreamBufTest1) 
 {
 	char buf[1024];
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	typedef LogWriteBuf<FileUtil> buf_type;
-	std::shared_ptr<buf_type> sp = std::make_shared<buf_type>(MemManager::GetPageSize(), 0, fd, false);
+	typedef LogWriteBuf<MMapShared> buf_type;
+	std::shared_ptr<buf_type> sp = std::make_shared<buf_type>(MemManager::GetPageSize(), 0, fd, false, false);
 
 	logstreambuf<buf_type> csb(sp);
 
@@ -61,7 +63,7 @@ TEST(StoreTest, TestReadv1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<MMapShared> store(MemManager::GetPageSize(), 0, fd, false, false);
 
     std::function<int(int, const struct iovec *,int)> rcb = [] (int fd, const struct iovec *io, int count) {
         return ::readv(fd, io, count);
@@ -88,7 +90,7 @@ TEST(StoreTest, TestReadv2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogWriteBuf<FileUtil> store(MemManager::GetPageSize(), 0, fd, false);
+	LogWriteBuf<MMapShared> store(MemManager::GetPageSize(), 0, fd, false, false);
 
     std::function<int(int, const struct iovec *,int)> rcb = [] (int fd, const struct iovec *io, int count) {
         return ::readv(fd, io, count);
@@ -118,7 +120,7 @@ TEST(StoreTest, TestRW1)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<MMapShared, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd, false);
 	EXPECT_EQ(rwBuf.Push("abcdef", 6), 0) << buf;
 	EXPECT_EQ(rwBuf.Available(), 6);
 	EXPECT_EQ(rwBuf.IsEmpty(), false);
@@ -156,7 +158,7 @@ TEST(StoreTest, TestRW2)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<MMapShared, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd, false);
 	int count = 1200;
 	for (int i = 0; i < count; ++i) {
 		char dest[6] = {};
@@ -187,7 +189,7 @@ TEST(StoreTest, TestRW3)
 	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
 	ASSERT_TRUE(fd > 0);
 
-	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	LogRWStream<MMapShared, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd, false);
 	int count = 1200;
 	char outstr[128];
 	char dest[128];
@@ -216,13 +218,13 @@ TEST(StoreTest, TestRWv1)
 	ASSERT_TRUE(fd > 0);
 
 	int fds[2];
-    ASSERT_EQ(pipe(fds), 0);
-
-	 std::function<int(int, const struct iovec *,int)> wcb = [] (int fd, const struct iovec *io, int count) {
-        return ::writev(fd, io, count);
-    };
-
-	LogRWStream<FileUtil, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd);
+	ASSERT_EQ(pipe(fds), 0);
+	 
+	std::function<int(int, const struct iovec *,int)> wcb = [] (int fd, const struct iovec *io, int count) {
+	  return ::writev(fd, io, count);
+	};
+	
+	LogRWStream<MMapShared, LRUCache, 16> rwBuf(MemManager::GetPageSize(), 0, fd, false);
 	int count = 1200;
 	char outstr[128];
 	char dest[128];
@@ -268,5 +270,108 @@ TEST(StoreTest, TestRWv1)
 	FileUtil::Close(fds[1]);
 }
 
+TEST (StoreTest, OneShotTest1) {
+  typedef OneShotCache <MMapAnon, 32> cache_type;
+  cache_type oneShot(MemManager::GetPageSize(), 0, -1);
+
+  cache_type::read_cache_type page;
+  
+  ASSERT_EQ(oneShot.FindPage(0, page), -1);
+
+  char *a,*b,*c,*d;
+  off64_t zero = 0;
+  off64_t one = MemManager::GetPageSize();
+  off64_t two = MemManager::GetPageSize() * 2;
+  off64_t three = MemManager::GetPageSize() * 3;
+
+  a = reinterpret_cast<char*>(MMapAnon::MMapWrite(-1, 0, MemManager::GetPageSize()));
+  ASSERT_NE(a, nullptr);
+
+  b = reinterpret_cast<char*>(MMapAnon::MMapWrite(-1, 0, MemManager::GetPageSize()));
+  ASSERT_NE(b, nullptr);
+
+  c = reinterpret_cast<char*>(MMapAnon::MMapWrite(-1, 0, MemManager::GetPageSize()));
+  ASSERT_NE(c, nullptr);
+
+  d = reinterpret_cast<char*>(MMapAnon::MMapWrite(-1, 0, MemManager::GetPageSize()));
+  ASSERT_NE(d, nullptr);
+
+  oneShot.AddPage(a, zero);
+  oneShot.AddPage(b, one);
+  oneShot.AddPage(c, two);
+  oneShot.AddPage(d, three);
+
+
+  ASSERT_EQ(oneShot.FindPage(zero, page), 0);
+  ASSERT_EQ(oneShot.FindPage(zero, page), 0);
+  ASSERT_EQ(oneShot.FindPage(two, page), 0);
+  ASSERT_EQ(oneShot.FindPage(one, page), -1);
+  ASSERT_EQ(oneShot.FindPage(two, page), 0);
+  ASSERT_EQ(oneShot.FindPage(three, page), 0);
+  ASSERT_EQ(oneShot.FindPage(two, page), -1);
+}
+
+TEST (StoreTest, OneShotTest2)
+{
+  LogRWStream<MMapAnon, OneShotCache, 16> rwBuf(MemManager::GetPageSize(), 0, -1, true);
+  EXPECT_EQ(rwBuf.Push("abcdef", 6), 0);
+  EXPECT_EQ(rwBuf.Available(), 6);
+  EXPECT_EQ(rwBuf.IsEmpty(), false);
+  EXPECT_EQ(rwBuf.Free(), UINT64_MAX - 6);
+  EXPECT_EQ(rwBuf.Capacity(), UINT64_MAX);
+  
+  char d = 0;
+  EXPECT_EQ(rwBuf.Peak (5, d), true);
+  EXPECT_EQ(d, 'f');
+  EXPECT_EQ(rwBuf.Peak (6, d), false);
+
+  uint64_t offset = 0;
+  EXPECT_EQ(rwBuf.Find(0, 'a', offset), true);
+  EXPECT_EQ(offset, 0);
+  EXPECT_EQ(rwBuf.Find(0, 'd', offset), true);
+  EXPECT_EQ(offset, 3);
+  EXPECT_EQ(rwBuf.Find(1, 'a', offset), false);
+  
+  char dest[6] = {};
+  EXPECT_EQ(rwBuf.Pop(0, dest, 6), true);
+  ASSERT_EQ(dest[0], 'a');
+  ASSERT_EQ(dest[1], 'b');
+  ASSERT_EQ(dest[2], 'c');
+  ASSERT_EQ(dest[3], 'd');
+  ASSERT_EQ(dest[4], 'e');
+  ASSERT_EQ(dest[5], 'f');
+}
 
 // TODO test restart 
+
+
+TEST(StoreTest, MaskTest1)
+{
+	LogRWStream<MMapAnon, OneShotCache, 16> rwBuf(MemManager::GetPageSize(), 0, -1, true);
+
+	for (int i = 0; i < 2*MemManager::GetPageSize(); ++i) {
+	  rwBuf.Push("a", 1);
+	}
+
+	char mask [] = {'b'};
+	ASSERT_TRUE(rwBuf.Unmask(MemManager::GetPageSize()/2, MemManager::GetPageSize(), mask, 1));
+
+	int i = 0;
+	for (; i < MemManager::GetPageSize()/2; ++i) {
+	  char a = 0;
+	  ASSERT_TRUE(rwBuf.Pop(i, &a, 1)) << i;
+	  ASSERT_EQ(a, 'a') << "I:" << i;
+	}
+
+	for (; i < MemManager::GetPageSize()/2 + MemManager::GetPageSize(); ++i) {
+	  char a = 0;
+	  ASSERT_TRUE(rwBuf.Pop(i, &a, 1)) << i;
+	  ASSERT_EQ(a, 'a' ^ mask[0]) << i;
+	}
+		
+	for (; i < 2*MemManager::GetPageSize(); ++i) {
+	  char a = 0;
+	  ASSERT_TRUE(rwBuf.Pop(i, &a, 1)) << i;
+	  ASSERT_EQ(a, 'a') << i;
+	}
+}

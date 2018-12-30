@@ -13,7 +13,7 @@ coypu:
     logger: ws-logger
     cpu: 8
 
-do-gdax: true
+do-gdax: false
 
 gdax-symbols: 
   - BTC-USD

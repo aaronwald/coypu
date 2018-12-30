@@ -80,6 +80,11 @@ namespace coypu {
                     return true;
                 }
 
+					 bool Unmask (CapacityType offset, CapacityType len, const char *mask, int maskLen) {
+						assert(false);
+						return false;
+					 }
+
                 bool Find (DataType d, CapacityType &offset) const {
                     offset = 0;
                     if (IsEmpty()) return false;
