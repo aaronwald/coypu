@@ -4,6 +4,7 @@ from Queue import Queue
 from websocket import create_connection
 from threading import Thread
 import curses
+import sys
 import json
 
 stopped = False
@@ -11,8 +12,7 @@ ws_queue = Queue()
 
 def do_websocket():
     ws = create_connection("ws://localhost:8080/websocket")
-    ws.send(json.dumps({"foo": "bar"}))
-    ws.send(json.dumps(range(0,10)))
+    ws.send(json.dumps({"cmd": "mark", "seqno": 0}))
 
     while not stopped:
         result =  ws.recv()
@@ -70,7 +70,7 @@ if __name__ == "__main__":
                         products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }
                         last_y = last_y + 1
                     products[product]['vol'] = l[2]
-                    products[product]['last'] = l[3]
+                    products[product]['last'] = float(l[3])
 
 
                 if l[0] == "Tick":
@@ -114,12 +114,14 @@ if __name__ == "__main__":
                         stdscr.addstr(y, 60, f)
 
                         last = products[product]['last']
-                        stdscr.addstr(y, 80, last)
+                        f = "{:14.8f}".format(last)
+                        stdscr.addstr(y, 80, f)
 
                         products[product]['last_bid'] = bid_px
                         products[product]['last_ask'] = ask_px
                     except Exception as e:
-                        stdscr.addstr(20, 0, str(e))
+                        print >> sys.stderr, e
+                        stdscr.addstr(20, 0, "exception" + str(e))
 
             stdscr.refresh()
 

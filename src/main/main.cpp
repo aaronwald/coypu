@@ -659,14 +659,14 @@ int main(int argc, char **argv)
 		std::weak_ptr<StreamType> wStreamSP = streamSP; 
 
 		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
+		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wAnonWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
 			static uint64_t seqNum = 0;
 			++seqNum;
 			static BookMapType bookMap;
 			unsigned int junk= 0;
 			uint64_t start = 0, end = 0;
 
-			auto wsManager = wWsManager.lock();
+			auto wsManager = wAnonWsManager.lock();
 			auto publish = wPublishStreamSP.lock();
 			auto stream = wStreamSP.lock();
 			auto coinCache = wCoinCache.lock();
@@ -878,7 +878,8 @@ int main(int argc, char **argv)
 						} else if (!strcmp(type, "heartbeat")) {
 							// skip
 						} else {
-							console->warn("{0} {1}", type, jsonDoc); // spdlog does not do streams
+
+						  console->warn("{0} {1}", type, jsonDoc); // spdlog does not do streams
 						}
 					} else {
 						assert(false);
