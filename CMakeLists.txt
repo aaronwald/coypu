@@ -111,3 +111,8 @@ gtest_discover_tests(coyputest)
 add_subdirectory("${PROJECT_SOURCE_DIR}/src/kern")
 add_subdirectory("${PROJECT_SOURCE_DIR}/src/proto")
 
+add_custom_target(docker 
+	COMMAND docker build -t coypu .
+	DEPENDS coypu
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
