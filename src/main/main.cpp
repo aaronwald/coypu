@@ -478,10 +478,10 @@ int main(int argc, char **argv)
 	// coinCache->Dump(std::cout);
 	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 
-	// TODO Fix . Only here for holding onto the SP until we work out why we cant pass to websocket
-	auto txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
-
-	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wAnonWsManager, readvCB, writevCB, txtBuf](int fd) {
+	// hold ref to bufs
+	std::unordered_map <int, std::shared_ptr<AnonStreamType>> txtBufs;
+	
+	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wAnonWsManager, readvCB, writevCB, &txtBufs, logger=console](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
 
@@ -490,18 +490,22 @@ int main(int argc, char **argv)
 		if (TCPHelper::SetNoDelay(clientfd)) {
 		}
 
+		logger->info("accept ws {0}", clientfd);
+		
 		auto eventMgr = wEventMgr.lock();
 		auto wsManager = wAnonWsManager.lock();
 		auto publish = wPublishStreamSP.lock();
 
 		if (eventMgr && wsManager && publish) {
-		  uint64_t offset = 0;
-		  // restarts publish from 0
-		  publish->Register(clientfd, offset);
+		  std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+		  txtBufs.insert(std::make_pair(clientfd, txtBuf));
+			
+		  uint64_t init_offset = UINT64_MAX;
+		  publish->Register(clientfd, init_offset);
 
 			std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, wsManager, std::placeholders::_1);
 			std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, wsManager, std::placeholders::_1);
-			std::function<int(int)> closeCB = [wAnonWsManager, wPublishStreamSP] (int fd) {
+			std::function<int(int)> closeCB = [wAnonWsManager, wPublishStreamSP, &txtBufs] (int fd) {
 				auto wsManager = wAnonWsManager.lock();
 				if (wsManager) {
 					wsManager->Unregister(fd);
@@ -510,28 +514,65 @@ int main(int argc, char **argv)
 				if (publish) {
 					publish->Unregister(fd);
 				}
+
+				auto b = txtBufs.find(fd);
+				if (b != txtBufs.end()) {
+				  txtBufs.erase(b);
+				}
 				return 0;
 			};
 
 
 			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
-			std::function <void(uint64_t, uint64_t)> onText = [&txtBuf] (uint64_t offset, off64_t len) {
+			std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wPublishStreamSP, wEventMgr, logger] (uint64_t offset, off64_t len) {
 			  // could do something with a request from client here. json sub msg? with mark
 			  char jsonDoc[1024*1024] = {};
 			  if (len < sizeof(jsonDoc)) {
 				 // sad copying but nice json library
 				 if(txtBuf->Pop(jsonDoc, offset, len)) {
 					jsonDoc[len] = 0;
-					std::cout << "onText [" << jsonDoc << "]" << std::endl;
+					logger->debug("{0} doc {1}", clientfd, jsonDoc);
+					
 					Document jd;
 					if (!jd.Parse(jsonDoc).HasParseError()) {
+					  if (jd.HasMember("cmd")) {
+						 const char *cmd = jd["cmd"].GetString();
+						 if (!strncmp(cmd, "mark", 4)) {
+							if (jd.HasMember("offset")) {
+							  const uint64_t offset = jd["offset"].GetUint64();
+							  auto publish = wPublishStreamSP.lock();
+							  auto eventMgr = wEventMgr.lock();
+							  if (publish && eventMgr) {
+								 if (publish->Mark(clientfd, offset)) {
+									logger->info("Mark {0} {1}" , clientfd, offset);
+									eventMgr->SetWrite(clientfd);
+								 } else {
+									logger->error("Mark failed {0} {1}" , clientfd, offset);
+								 }
+							  }
+							} else {
+							  auto publish = wPublishStreamSP.lock();
+							  auto eventMgr = wEventMgr.lock();
+							  if (publish && eventMgr) {
+								 if (publish->MarkEnd(clientfd)) {
+									logger->info("Mark end {0}" , clientfd);
+									eventMgr->SetWrite(clientfd);
+								 } else {
+									logger->error("Mark end failed {0}" , clientfd);
+								 }
+							  }
+							}
+						 } else {
+							logger->error("Unsupported command {0}", cmd);
+						 }
+					  }
 					} else {
-					  fprintf(stderr, "\nError(offset %u): %s\n", 
-								 (unsigned)jd.GetErrorOffset(),
-								 GetParseError_En(jd.GetParseError()));
+					  logger->error("Error(offset {0}): {1}", 
+										 (unsigned)jd.GetErrorOffset(),
+										 GetParseError_En(jd.GetParseError()));
 					}
 				 } else {
-					std::cout << "pop fail" << std::endl;
+					logger->error("Pop failed");
 				 }
 			  }
 

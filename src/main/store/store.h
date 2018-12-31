@@ -773,6 +773,23 @@ namespace coypu {
             return 0;
         }
 
+		  bool Mark (int fd, uint64_t offset) {
+			 if (fd < _curOffsets.size()) {
+				_curOffsets[fd] = offset;
+				return true;
+			 }
+			 return false;
+		  }
+		  
+		  bool MarkEnd (int fd) {
+			 if (fd < _curOffsets.size()) {
+				_curOffsets[fd] = _stream->Available();
+				return true;
+			 }
+			 return false;
+		  }
+
+
         int Unregister (int fd) {
             if (fd >= _curOffsets.size()) return -3;
             _curOffsets[fd] = UINT64_MAX;

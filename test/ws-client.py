@@ -1,31 +1,44 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-from Queue import Queue
+from queue import Queue
 from websocket import create_connection
 from threading import Thread
+
 import curses
 import sys
 import json
+import asyncio
 
 stopped = False
 ws_queue = Queue()
 
 def do_websocket():
     ws = create_connection("ws://localhost:8080/websocket")
-    ws.send(json.dumps({"cmd": "mark", "seqno": 0}))
+    try:
+        #ws.send(json.dumps({"cmd": "mark", "offset": 0}))
+        ws.send(json.dumps({"cmd": "mark"}))
+        
+        while not stopped:
+            result =  ws.recv()
+            # will need to rework for asnycio
+            #            result = yield from asyncio.wait_for(ws.recv, 1.0)
+            
+            if result:
+                ws_queue.put(result)
 
-    while not stopped:
-        result =  ws.recv()
-        if result:
-            ws_queue.put(result)
+        ws.close()
+    except Exception as e:
+        print(e)
 
-    ws.close()
 
+    
+def go():
+    print("foo")
 
 if __name__ == "__main__":
-    thread = Thread(target = do_websocket, args = [])
+    thread = Thread(target=do_websocket)
     thread.start()
-
+ 
     stdscr = curses.initscr()
     curses.start_color()
     curses.noecho()
@@ -67,8 +80,10 @@ if __name__ == "__main__":
                 if l[0] == "Trade":
                     product = l[1]
                     if product not in products:
-                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
+                        products[product]['last_color'] = curses.color_pair(3)
                         last_y = last_y + 1
+                        
                     products[product]['vol'] = l[2]
                     products[product]['last'] = float(l[3])
 
@@ -76,12 +91,16 @@ if __name__ == "__main__":
                 if l[0] == "Tick":
                     product = l[1]
                     if product not in products:
-                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0 }
+                        products[product] = { 'y': last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
+                        products[product]['last_color'] = curses.color_pair(3)
                         last_y = last_y + 1
+                        
                     y = products[product]['y']
                     last_bid = products[product]['last_bid']
                     last_ask = products[product]['last_ask']
                     last = products[product]['last']
+                    prev = products[product]['prev']
+                    #products[product]['prev'] = last
                     stdscr.addstr(y, 0, product)
                     stdscr.clrtoeol()
 
@@ -95,28 +114,27 @@ if __name__ == "__main__":
                         stdscr.addstr(y, 15, f)
 
                         f = "{:12.6f}".format(bid_px)
-                        if bid_px > last_bid:
-                            stdscr.addstr(y, 30, f, curses.color_pair(2))
-                        elif bid_px == last_bid:
-                            stdscr.addstr(y, 30, f, curses.color_pair(3))
-                        else:
-                            stdscr.addstr(y, 30, f, curses.color_pair(1))
+                        stdscr.addstr(y, 30, f)
 
                         f = "x {:12.6f}".format(ask_px)
-                        if ask_px < last_ask:
-                            stdscr.addstr(y, 43, f, curses.color_pair(1))
-                        elif ask_px == last_ask:
-                            stdscr.addstr(y, 43, f, curses.color_pair(3))
-                        else:
-                            stdscr.addstr(y, 43, f, curses.color_pair(2))
+                        stdscr.addstr(y, 43, f)
+
 
                         f = "{:12.4f}".format(ask_qty)
                         stdscr.addstr(y, 60, f)
 
-                        last = products[product]['last']
                         f = "{:14.8f}".format(last)
-                        stdscr.addstr(y, 80, f)
-
+                        if last == prev:
+                            stdscr.addstr(y, 80, f, products[product]['last_color'])
+                        elif last < prev:
+                            stdscr.addstr(y, 80, f, curses.color_pair(1))
+                            products[product]['prev'] = last
+                            products[product]['last_color'] = curses.color_pair(1)
+                        else:
+                            stdscr.addstr(y, 80, f, curses.color_pair(2))
+                            products[product]['prev'] = last
+                            products[product]['last_color'] = curses.color_pair(2)
+                                                
                         products[product]['last_bid'] = bid_px
                         products[product]['last_ask'] = ask_px
                     except Exception as e:
@@ -126,6 +144,7 @@ if __name__ == "__main__":
             stdscr.refresh()
 
     stopped = True
+
 
     curses.nocbreak()
     stdscr.keypad(0)
