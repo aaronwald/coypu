@@ -158,7 +158,7 @@ int RestoreStore (const std::string &name, const std::function<void(const char *
 	char data[record_size];
 	do {
 		char storeFile[PATH_MAX];
-		snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+		::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
 		FileUtil::Exists(storeFile, b);
 		if (b) {
 			int fd = FileUtil::Open(storeFile, O_LARGEFILE|O_RDONLY, 0600);
@@ -312,8 +312,8 @@ int main(int argc, char **argv)
 	SignalFDHelper::BlockAllSignals();
 
 	// Default console logger
-	auto console = spdlog::stdout_color_st("console");
-	auto error_logger = spdlog::stderr_color_st("stderr");
+	auto console = spdlog::stdout_color_mt("console"); // ,ultithread
+	auto error_logger = spdlog::stderr_color_mt("stderr");
 	spdlog::set_level(spdlog::level::info); // Set global log level to info
 	console->info("Coypu [{1}] Git Revision [{0}]", _GIT_REV, COYPU_VERSION);
 	// config
@@ -713,7 +713,7 @@ int main(int argc, char **argv)
 			auto coinCache = wCoinCache.lock();
 			if (publish && wsManager && stream  && coinCache) {
 				// std::cout << stream->Available() << std::endl;
-				if (!(seqNum % 1000)) {
+				if (!(seqNum % 10000)) {
 					std::stringstream ss;
 					ss << *coinCache;
 					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());

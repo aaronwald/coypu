@@ -176,6 +176,10 @@ namespace coypu
                         if (!con->_writeBuf->IsEmpty()) {
                             int ret = con->_writeBuf->Writev(fd, con->_writev); 
 
+									 if (con->_server) {
+										_logger->info("Write fd[{0}] bytes[{1}]", fd, ret);
+									 }
+
                             if (ret < 0) return ret; // error
 
                             // We could have EAGAIN/EWOULDBLOCK so we want to maintain write if data available
@@ -205,6 +209,10 @@ namespace coypu
                         } else {
 								  r = con->_httpBuf->Readv(fd, con->_readv);
                         }
+
+								if (con->_server) {
+								  _logger->info("Read fd[{0}] bytes[{1}]", fd, r);
+								}
 
 
                         if (r < 0) return -3;
@@ -475,6 +483,7 @@ namespace coypu
                             } else if (con->_frame._opcode == WS_OP_PONG) {
                                 _logger->debug("Pong");
                             } else if (con->_frame._opcode == WS_OP_CLOSE) {
+										_logger->debug("Close");
                                 con->_state = WS_CS_CLOSING;
                             } else {
                                 _logger->error("Unsupported opcode [{0}]", con->_frame._opcode);
@@ -506,7 +515,6 @@ namespace coypu
                             } else if (len == WS_PAYLOAD_64) {
                                 needed += 8;
                             }
-
 																						 
 
                             if (needed <= avail) {

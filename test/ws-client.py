@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from queue import Queue
-from websocket import create_connection
+import websocket
 from threading import Thread
 
 import curses
@@ -12,31 +12,31 @@ import asyncio
 stopped = False
 ws_queue = Queue()
 
-def do_websocket():
-    ws = create_connection("ws://localhost:8080/websocket")
-    try:
-        #ws.send(json.dumps({"cmd": "mark", "offset": 0}))
-        ws.send(json.dumps({"cmd": "mark"}))
-        
-        while not stopped:
-            result =  ws.recv()
-            # will need to rework for asnycio
-            #            result = yield from asyncio.wait_for(ws.recv, 1.0)
-            
-            if result:
-                ws_queue.put(result)
+def on_message(ws, message):
+    ws_queue.put(message)
 
-        ws.close()
-    except Exception as e:
-        print(e)
+def on_error(ws, error):
+    print(error)
 
+def on_close(ws):
+    print("### closed ###")
 
-    
-def go():
-    print("foo")
+def on_open(ws):
+    ws.send(json.dumps({"cmd": "mark"}))
+
+def do_websocket(ws):
+    ws.run_forever()
 
 if __name__ == "__main__":
-    thread = Thread(target=do_websocket)
+    websocket.enableTrace(False)
+    
+    ws = websocket.WebSocketApp("ws://localhost:8080/websocket",
+                                on_message = on_message,
+                                on_error = on_error,
+                                on_close = on_close,
+                                on_open = on_open)
+
+    thread = Thread(target=do_websocket, args=[ws])
     thread.start()
  
     stdscr = curses.initscr()
@@ -151,5 +151,5 @@ if __name__ == "__main__":
     curses.echo()
     curses.endwin()
     print("Shutting down....")
-
+    ws.keep_running = False
 
