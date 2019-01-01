@@ -7,7 +7,6 @@ from threading import Thread
 import curses
 import sys
 import json
-import asyncio
 
 stopped = False
 ws_queue = Queue()

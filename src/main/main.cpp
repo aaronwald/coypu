@@ -343,7 +343,6 @@ int main(int argc, char **argv)
 				exit(1);
 			}
 
-
 			auto log = spdlog::basic_logger_st(logger, file);
 			log->flush_on(spdlog::level::warn); 
 			log->set_level(spdlog::level::from_str(level));

@@ -16,36 +16,31 @@ coypu:
 do-gdax: true
 
 gdax-symbols:
-  - BTC-USD
-  - BCH-USD
-  - ETH-USD
-  - ETC-USD
-  - LTC-USD
-  - ZRX-USD
-  - BCH-BTC
   - ETH-BTC
-  - ETC-BTC
+  - ETH-USD
   - LTC-BTC
-  - ZRX-BTC
-  - BTC-EUR
-  - BCH-EUR
+  - LTC-USD
   - ETH-EUR
-  - ETC-EUR
   - LTC-EUR
-  - ZRX-EUR
+  - BCH-USD
+  - BCH-BTC
+  - BCH-EUR
+  - BTC-USD
   - BTC-GBP
-  - BCH-GBP
-  - ETH-GBP
-  - ETC-GBP
-  - LTC-GBP
+  - BTC-EUR
+  - ETC-USD
+  - ETC-EUR
+  - ETC-BTC
+  - ZRX-BTC
   - BTC-USDC
   - ETH-USDC
   - BAT-USDC
-  - ZEC-USDC
-  - MANA-USDC
-  - LOOM-USDC
-  - DNT-USDC
+  - ZRX-EUR
+  - ZRX-USD
   - CVC-USDC
+  - DNT-USDC
+  - LOOM-USDC
+  - MANA-USDC
   
 gdax-channels:
   - ticker

@@ -140,7 +140,7 @@ namespace coypu
                                             std::function <void(uint64_t, uint64_t)> onText,
                                             const std::shared_ptr<StreamTrait> stream,
                                             const std::shared_ptr<PublishTrait> publish) {
-                        auto sp = std::make_shared<con_type>(fd, _capacity, !serverCon, serverCon, readv, writev, onOpen, onText, stream, publish); // 32k capacity
+                        auto sp = std::make_shared<con_type>(fd, _capacity, !serverCon, serverCon, readv, writev, onOpen, onText, stream, publish);
                         auto p = std::make_pair(fd, sp);
                         sp->_state = WS_CS_CONNECTING;
 
