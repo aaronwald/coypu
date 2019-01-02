@@ -11,7 +11,7 @@ logger.addHandler(logging.FileHandler("client.log"))
 
 
 async def coypu(display):
-    async with connect("ws://localhost:8080/websocket", ping_interval=60, ping_timeout=15) as cws:
+    async with connect("ws://localhost:8080/websocket", ping_interval=60, ping_timeout=10) as cws:
         await cws.send(json.dumps({"cmd": "mark"}))
         while True:
             msg = await cws.recv()

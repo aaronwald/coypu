@@ -799,7 +799,7 @@ namespace coypu {
         int Writev (typename S::offset_type  size,
                     int fd, std::function <int(int, const struct iovec *, int)> &cb) {
           if (fd >= _curOffsets.size()) return -3;
-          if (_curOffsets[fd] == UINT64_MAX) return -4; //unregistered
+          if (_curOffsets[fd] == UINT64_MAX) return 0; // no work
           int r = _stream->Writev(_curOffsets[fd], size, fd, cb);
           if (r > 0) {
             _curOffsets[fd] += r;

@@ -21,7 +21,8 @@ def on_close(ws):
     print("### closed ###")
 
 def on_open(ws):
-    ws.send(json.dumps({"cmd": "mark"}))
+    doc = json.dumps({"cmd": "mark"})
+    ws.send(doc)
 
 def do_websocket(ws):
     ws.run_forever()

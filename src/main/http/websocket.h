@@ -189,7 +189,11 @@ namespace coypu
                         } else if (con->_publish) {
                             // could limit size of write
                             int ret = con->_publish->Writev(con->_publish->Available(fd), fd, con->_writev);
-                            if (ret < 0) return ret; // error
+									 
+                            if (ret < 0) {
+										_logger->error("Publish error fd[{0}] err[{1}]", fd, ret);
+										return ret; // error
+									 }
                             return con->_publish->IsEmpty(fd) ? 0 : 1;
                         }
 

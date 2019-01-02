@@ -16,6 +16,7 @@ coypu:
 do-gdax: true
 
 gdax-symbols:
+  - MANA-USDC
   - ETH-BTC
   - ETH-USD
   - LTC-BTC
@@ -40,7 +41,7 @@ gdax-symbols:
   - CVC-USDC
   - DNT-USDC
   - LOOM-USDC
-  - MANA-USDC
+
   
 gdax-channels:
   - ticker
