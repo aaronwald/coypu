@@ -106,7 +106,7 @@ namespace coypu
                 WS_OP_BINARY_FRAME = 0x2,
                 WS_OP_CLOSE        = 0x8,
                 WS_OP_PING         = 0x9,
-                WS_OP_PONG         = 0x10
+                WS_OP_PONG         = 0xA
             };
 
             enum WSClientState {
@@ -479,7 +479,17 @@ namespace coypu
                             } else if (con->_frame._opcode == WS_OP_BINARY_FRAME) {
                                 _logger->debug("Binary Frame");
                             } else if (con->_frame._opcode == WS_OP_PING) {
-                                _logger->debug("Ping");
+										_logger->debug("Ping. Send pong. len[{0}]", con->_frame._len);
+										char data[1024];
+										assert(con->_frame._len < 1024);
+
+										if (con->_frame._masked) {
+										  buf->Unmask(offset, con->_frame._len, con->_frame._mask, WS_MASK_LEN);
+										}
+										
+										buf->Pop(data, offset, con->_frame._len); // copy
+										bool b = Queue(con->_fd, WS_OP_PONG, data, con->_frame._len);
+										assert(b);
                             } else if (con->_frame._opcode == WS_OP_PONG) {
                                 _logger->debug("Pong");
                             } else if (con->_frame._opcode == WS_OP_CLOSE) {

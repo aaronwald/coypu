@@ -3,30 +3,21 @@ import curses
 from websockets import connect
 import json
 import sys
+import logging
 
-class CoypuWebsocket:
-    async def __aenter__(self):
-        self._conn = connect("ws://localhost:8080/websocket")
-        self.websocket = await self._conn.__aenter__()        
-        return self
-
-    async def __aexit__(self, *args, **kwargs):
-        await self._conn.__aexit__(*args, **kwargs)
-
-    async def send(self, message):
-        await self.websocket.send(message)
-
-    async def receive(self):
-        return await self.websocket.recv()
+logger = logging.getLogger('websockets')
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.FileHandler("client.log"))
 
 
 async def coypu(display):
-    async with CoypuWebsocket() as cws:
+    async with connect("ws://localhost:8080/websocket", ping_interval=60, ping_timeout=15) as cws:
         await cws.send(json.dumps({"cmd": "mark"}))
         while True:
-            msg = await cws.receive()
+            msg = await cws.recv()
             try:
                 display.render(msg)
+                # await ?
             except Exception as e:
                 print(e)
     
@@ -145,15 +136,14 @@ class Display:
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
 
-#    loop.run_until_complete(coypu())
-
     with Display(loop) as display:
         task1 = loop.create_task(display.get_ch())
         task2 = loop.create_task(coypu(display))
         loop.run_forever()
-        
-#        task.cancel()
-#        try:
-#            loop.run_until_complete(task)
-#        except:
-#            pass
+
+        # cleans up display for some reason
+        task1.cancel()
+        try:
+            loop.run_until_complete(task1)
+        except:
+            pass
