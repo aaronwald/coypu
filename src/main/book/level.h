@@ -130,6 +130,10 @@ public:
 		}
 	}
 
+	void Clear (std::vector <T *> &out) {
+	  std::copy(v.begin(), v.end(), std::back_inserter(out));
+	  v.clear();
+	}
 
 private:
 	std::vector<T *> v;
@@ -255,6 +259,11 @@ public:
 		}
 	}
 
+	void Clear (std::vector <T *> &out) {
+	  std::copy(v.begin(), v.end(), std::back_inserter(out));
+	  v.clear();
+	}
+
 
 private:
 	std::vector<T *> v;
@@ -342,6 +351,21 @@ public:
 
 	bool BestAsk (T &t) {
 		return _asks.GetBack(t);
+	}
+
+	void Clear () {
+	  std::vector<T *> levels;
+	  _bids.Clear(levels);
+	  for (T *t : levels) {
+		 Free(t);
+	  }
+	  levels.clear();
+	  
+	  _asks.Clear(levels);
+	  for (T *t : levels) {
+		 Free(t);
+	  }
+	  levels.clear();
 	}
 
 private:

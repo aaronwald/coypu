@@ -9,6 +9,7 @@
 #include <memory>
 #include <functional>
 #include <sys/epoll.h>
+#include <deque>
 
 #include "event_hlpr.h"
 
@@ -174,6 +175,86 @@ namespace  coypu
                 std::vector <int> _closeList;
 
         };
+
+		  template <typename CBType>
+			 class EventCBManager {
+		  public:
+			 typedef std::function<int(int)> write_cb_type;
+			 
+		  EventCBManager(int fd, write_cb_type set_write) : _fd(fd), _set_write(set_write) {
+			 }
+
+			 virtual ~EventCBManager() {
+			 }
+
+			 bool Register (uint64_t type, CBType &cb) {
+				return _cbMap.insert(std::make_pair(type, cb)).second;
+			 }
+
+			 bool Unregister (uint64_t type) {
+				auto b = _cbMap.find(type);
+				if (b != _cbMap.end()) {
+				  _cbMap.erase(b);
+				  return true;
+				}
+				return false;
+			 }
+
+			 int Read (int fd) {
+				uint64_t u = UINT64_MAX;
+				int r = ::read(_fd, &u, sizeof(uint64_t));
+				if (r > 0) {
+				  assert(r == sizeof(uint64_t));
+				  if (r < sizeof(uint64_t)) return -128;
+				  auto b = _cbMap.find(u);
+				  if (b != _cbMap.end()) {
+					 (*b).second();
+				  }
+				  return 0;
+				}
+				return r;
+			 }
+
+			 // only writes one at a time.
+			 int Write (int fd) {
+				// write queue
+				uint64_t u = _queue.front();
+				int r = ::write(_fd, &u, sizeof(uint64_t));
+				if (r > 0) {
+				  assert(r == sizeof(uint64_t));
+				  if (r < sizeof(uint64_t)) return -128;
+				  _queue.pop_front();
+				  return _queue.empty() ? 0 : 1;
+				}
+				
+				return -1;
+			 }
+
+			 int Close (int fd) {
+				// nop ?? error 
+				return -1;
+			 }
+
+			 void Queue (uint64_t u) {
+				_queue.push_back(u);
+				_set_write(_fd);
+			 }
+
+		  private:
+			 EventCBManager (const EventCBManager &other) = delete;
+			 EventCBManager &operator= (const EventCBManager &other) = delete;
+			 EventCBManager (const EventCBManager &&other) = delete;
+			 EventCBManager &operator= (const EventCBManager &&other) = delete;
+
+			 typedef std::deque<uint64_t> queue_type;
+			 queue_type _queue;
+			 
+			 typedef std::unordered_map <uint64_t, CBType> cb_map_type;
+			 cb_map_type _cbMap;
+			 
+			 int _fd;
+			 write_cb_type _set_write;
+		  };
     } // event
 } //  coypu
 

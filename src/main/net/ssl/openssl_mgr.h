@@ -213,8 +213,10 @@ namespace coypu {
                                 char buf[1024] = {};
                                 strerror_r(errno, buf, 1024);
                                 // if (err == 0) { // closed?}
-
-                                _logger->warn("Syscall Errno errno[{0}] ret[{1}] {2} [{3}]", errno, ret, iovec[0].iov_len, buf);
+                                unsigned long err = ERR_get_error();
+										  
+                                _logger->warn("Syscall Errno errno[{0}] ret[{1}] iov_len[{2}] err[{3}]", errno, ret, iovec[0].iov_len, err);
+										  // could be closed socket from server
                                 return -1;
                             } else {
                                 unsigned long err = ERR_get_error();

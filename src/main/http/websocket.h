@@ -483,7 +483,7 @@ namespace coypu
                             } else if (con->_frame._opcode == WS_OP_BINARY_FRAME) {
                                 _logger->debug("Binary Frame");
                             } else if (con->_frame._opcode == WS_OP_PING) {
-										_logger->debug("Ping. Send pong. len[{0}]", con->_frame._len);
+										_logger->debug("Ping [{1}]. Send pong. len[{0}]", con->_frame._len, con->_fd);
 										char data[1024];
 										assert(con->_frame._len < 1024);
 

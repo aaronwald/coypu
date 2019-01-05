@@ -65,9 +65,9 @@ extern "C" void processRust(uint32_t);
 
 struct CoinLevel
 {
-	uint64_t px;
-	uint64_t qty;
-	CoinLevel *next, *prev;
+  uint64_t px;
+  uint64_t qty;
+  CoinLevel *next, *prev;
 
 	CoinLevel(uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr)
 	{
@@ -95,11 +95,11 @@ struct CoinLevel
 } __attribute__((packed, aligned(64)));
 
 struct CoinCache {
-	char _key[64]; // keep product first. if first byte is null, then this is treated as a blank record
-	uint64_t _seqno;
-	uint64_t _origseqno;
+  char _key[64]; // keep product first. if first byte is null, then this is treated as a blank record
+  uint64_t _seqno;
+  uint64_t _origseqno;
 
-	uint32_t _seconds;
+  uint32_t _seconds;
 	uint32_t _milliseconds;
 
 	double _high24;
@@ -137,17 +137,48 @@ typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType
 typedef AdminManager<LogType> AdminManagerType;
 typedef OpenSSLManager <LogType> SSLType;
 
+typedef std::function<void(void)> cb_type;
+typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
+
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
 
-void bar (std::shared_ptr<EventManagerType> eventMgr, bool &done) {
+typedef struct CoypuContextS {
+  CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
+	 _bookMap = std::make_shared<BookMapType>();
+	 _txtBufs = std::make_shared<TxtBufMapType>();
+	 _eventMgr = std::make_shared<EventManagerType>(consoleLogger);
+	 _set_write_ws = std::bind(&EventManagerType::SetWrite, _eventMgr, std::placeholders::_1);
+	 _wsManager = std::make_shared<WebSocketManagerType>(wsLogger, _set_write_ws);
+	 _wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, _set_write_ws);
+	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
+	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/"); 
+  }
+  
+  std::shared_ptr <BookMapType> _bookMap;
+  std::shared_ptr <TxtBufMapType> _txtBufs;
+  std::shared_ptr <EventManagerType> _eventMgr;
+  std::function<int(int)> _set_write_ws;
+  std::shared_ptr <WebSocketManagerType> _wsManager;
+  std::shared_ptr <AnonWebSocketManagerType> _wsAnonManager;
+  std::shared_ptr <AdminManagerType> _adminManager;
+  std::shared_ptr <SSLType> _openSSLMgr;
+} CoypuContext;
+
+void bar (std::shared_ptr<CoypuContext> context, bool &done) {
 	CPUManager::SetName("epoll");
 
 	while (!done) {
-		if(eventMgr->Wait() < 0) {
+		if(context->_eventMgr->Wait() < 0) {
 			done = true;
 		}
 	}
+}
+
+void EventClearBooks (std::shared_ptr<BookMapType> &bookMap) {
+  for (auto &b : *bookMap) {
+	 b.second->Clear();
+  }
 }
 
 template <typename RecordType>
@@ -277,6 +308,74 @@ int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::s
 	return sockFD;
 }
 
+template <typename T, typename X>
+std::shared_ptr<EventCBManager<T>> CreateCBManager (typename EventCBManager<T>::write_cb_type set_write, std::shared_ptr<X> eventMgr) {
+  typedef EventCBManager<T> event_type;
+  int fd = EventFDHelper::CreateNonBlockEventFD(0);
+  if (fd < 0) return nullptr;
+
+  std::shared_ptr <event_type> sp = std::make_shared<event_type>(fd, set_write);
+  std::function<int(int)> readCB = std::bind(&event_type::Read, sp, std::placeholders::_1);
+  std::function<int(int)> writeCB = std::bind(&event_type::Write, sp, std::placeholders::_1);
+  std::function<int(int)> closeCB = std::bind(&event_type::Close, sp, std::placeholders::_1);
+  if (eventMgr->Register(fd, readCB, writeCB, closeCB) < 0) return nullptr;
+  
+  return sp;
+}
+
+void DoServerTest (std::shared_ptr<CoypuContext> contextSP) 
+{
+  int wsFD = TCPHelper::ConnectStream("localhost", 8765);
+  assert(wsFD > 0);
+  std::function<int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
+  std::function<int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
+  std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
+  
+  contextSP->_wsManager->RegisterConnection(wsFD, false, readvCB, writevCB, nullptr, nullptr, nullptr, nullptr);	
+  contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, wsCloseCB);
+  contextSP->_wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
+}
+
+void SetupAdmin (LogType &consoleLogger, std::string &interface, std::weak_ptr<CoypuContext> wContextSP) {
+  int adminFD = BindAndListen(consoleLogger, interface, 9999);
+  assert(adminFD > 0);
+  
+  coypu::event::callback_type adminAcceptCB = [wContextSP] (int fd) {
+	 struct sockaddr_in client_addr= {0};
+	 socklen_t addrlen= sizeof(sockaddr_in);
+	 
+	 // using IP V4
+	 int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
+	 auto context = wContextSP.lock();
+	 
+	 if (context) {
+		std::function<int(int,const struct iovec *,int)> rv = [] (int fd, const struct iovec *iov, int count) -> int { return ::readv(fd, iov, count); };
+		std::function<int(int,const struct iovec *,int)> wv = [] (int fd, const struct iovec *iov, int count) -> int { return ::writev(fd, iov, count); };
+		context->_adminManager->Register(clientfd, rv, wv);	
+		
+		std::function<int(int)> readCB = std::bind(&AdminManagerType::Read, context->_adminManager, std::placeholders::_1);
+		std::function<int(int)> writeCB = std::bind(&AdminManagerType::Write, context->_adminManager, std::placeholders::_1);
+		std::function<int(int)> closeCB = [wContextSP] (int fd) {
+		  auto context = wContextSP.lock();
+		  if (context) {
+			 context->_adminManager->Unregister(fd);
+		  }
+		  return 0;
+		};
+		context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+	 }
+	 
+	 return 0;
+  };
+
+  auto contextSP = wContextSP.lock();
+  if (contextSP && contextSP->_eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
+	 consoleLogger->perror(errno, "Register");
+  }
+}
+
 int main(int argc, char **argv)
 {
 	processRust(10);
@@ -291,26 +390,26 @@ int main(int argc, char **argv)
 
 	int r = CPUManager::RunOnNode(0);
 	if (r) {
-		fprintf(stderr, "Num failed %d\n", r);
-		exit(1);
+	  fprintf(stderr, "Num failed %d\n", r);
+	  exit(1);
 	}
 	
 	//ssl 
 	SSLType::Init();
 	int rc = RAND_load_file("/dev/urandom", 32); // /dev/random can be slow
 	if(rc != 32) {
-		fprintf(stderr, "RAND_load_file fail.\n"); // ERR_*
-		exit(1);
+	  fprintf(stderr, "RAND_load_file fail.\n"); // ERR_*
+	  exit(1);
 	}
-
+	
 	// set terminate
-    std::set_terminate([](){ std::cout << "Unhandled exception\n";
+	std::set_terminate([](){ std::cout << "Unhandled exception\n";
 							BackTrace::bt();
 							std::abort();});
-
+	
 	// Block all signals - wait til random is collected
 	SignalFDHelper::BlockAllSignals();
-
+	
 	// Default console logger
 	auto console = spdlog::stdout_color_mt("console"); // ,ultithread
 	auto error_logger = spdlog::stderr_color_mt("stderr");
@@ -319,85 +418,41 @@ int main(int argc, char **argv)
 	// config
 	std::shared_ptr<CoypuConfig> config = CoypuConfig::Parse(argv[1]);
 	if (!config) {
-		error_logger->error("Failed to parse config");
-		exit(1);
+	  error_logger->error("Failed to parse config");
+	  exit(1);
 	}
 	config = config->GetConfig("<<ROOT>>");
-
+	
 	// loggers
 	std::shared_ptr<CoypuConfig> loggers = config->GetConfig("loggers");
 	if (loggers) {
-		std::vector<std::string> loggerNames;
-		loggers->GetKeys(loggerNames);
-
-		for (const std::string &logger : loggerNames) {
-			auto cfgLog = loggers->GetConfig(logger);
-			assert(cfgLog);
-
-			std::string level, file;
-			cfgLog->GetKeyValue("level", level);
-			cfgLog->GetKeyValue("file", file);
-
-			if (level.empty() || file.empty()) {
-				error_logger->error("Logger config missing level or file.");
-				exit(1);
-			}
-
-			auto log = spdlog::basic_logger_st(logger, file);
-			log->flush_on(spdlog::level::warn); 
-			log->set_level(spdlog::level::from_str(level));
-			// spdlog::register_logger(log); not needed
-		}
+	  std::vector<std::string> loggerNames;
+	  loggers->GetKeys(loggerNames);
+	  
+	  for (const std::string &logger : loggerNames) {
+		 auto cfgLog = loggers->GetConfig(logger);
+		 assert(cfgLog);
+		 
+		 std::string level, file;
+		 cfgLog->GetKeyValue("level", level);
+		 cfgLog->GetKeyValue("file", file);
+		 
+		 if (level.empty() || file.empty()) {
+			error_logger->error("Logger config missing level or file.");
+			exit(1);
+		 }
+		 
+		 auto log = spdlog::basic_logger_st(logger, file);
+		 log->flush_on(spdlog::level::warn); 
+		 log->set_level(spdlog::level::from_str(level));
+		 // spdlog::register_logger(log); not needed
+	  }
 	} else {
-		assert(false);
-	}
-	
-	// app
-	CoypuApplication &c = CoypuApplication::instance();
-	c.foo();
-
-	auto a = std::make_shared<coypu::SPDLogger>(console);
-
-
-	auto eventMgr = std::make_shared<EventManagerType>(a);
-	eventMgr->Init();
-
-    sigset_t mask;
-	::sigemptyset(&mask);
-	::sigaddset(&mask, SIGINT);
-	::sigaddset(&mask, SIGKILL);
-	::sigaddset(&mask, SIGQUIT);
-	int signalFD = SignalFDHelper::CreateNonBlockSignalFD(&mask);
-	if (signalFD == -1) {
-		a->perror(errno, "CreateNonBlockSignalFD");
+	  assert(false);
 	}
 
-	bool done = false;
-	coypu::event::callback_type readCB = [&done](int fd) {
-		printf("Read signal.\n");
-		struct signalfd_siginfo signal;
-		int count = ::read(fd, &signal, sizeof(signal));  
-		if (count == -1) {
-			fprintf(stderr, "Signal read error\n");
-		}
-		done = true;
-		return 0;
-	};
-
-	if (eventMgr->Register(signalFD, readCB, nullptr, nullptr)) {
-		a->perror(errno, "Register");
-	}
-
-
-	std::string interface;
-	config->GetValue("interface", interface);
-	assert(!interface.empty());
-
-	int sockFD = BindAndListen(a, interface, 8080);
-
-	std::shared_ptr<StoreType> store;
+	// Config BEGIN
 	std::string wsStoreFile;
-	
 	LogType wsLogger;
 	{
 		auto cfg = config->GetConfig("coypu");
@@ -426,22 +481,55 @@ int main(int argc, char **argv)
 		}
 	}
 	assert(wsLogger);
+	// Config END
+	
+	// app
+	CoypuApplication &c = CoypuApplication::instance();
+	c.foo();
 
-	std::function<int(int)> set_write_ws = std::bind(&EventManagerType::SetWrite, eventMgr, std::placeholders::_1);
-	std::shared_ptr<WebSocketManagerType> wsManager = std::make_shared<WebSocketManagerType>(wsLogger, set_write_ws);
-	std::shared_ptr<AnonWebSocketManagerType> wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, set_write_ws);
+	auto consoleLogger = std::make_shared<coypu::SPDLogger>(console);
 
-	std::weak_ptr<WebSocketManagerType> wWsManager = wsManager;
-	std::weak_ptr<AnonWebSocketManagerType> wAnonWsManager = wsAnonManager;
-	std::weak_ptr <EventManagerType> wEventMgr = eventMgr;
+	auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
+	std::weak_ptr <CoypuContext> wContextSP = contextSP;
+	
+	std::function<int(int)> set_write_ws = std::bind(&EventManagerType::SetWrite, contextSP->_eventMgr, std::placeholders::_1);
+	contextSP->_eventMgr->Init();
+	
+	auto cbMgr = CreateCBManager<cb_type, EventManagerType>(set_write_ws, contextSP->_eventMgr);
+	assert(cbMgr);
 
-	std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) {
-		return ::readv(fd, iovec, c);
+	sigset_t mask;
+	::sigemptyset(&mask);
+	::sigaddset(&mask, SIGINT);
+	::sigaddset(&mask, SIGKILL);
+	::sigaddset(&mask, SIGQUIT);
+	int signalFD = SignalFDHelper::CreateNonBlockSignalFD(&mask);
+	if (signalFD == -1) {
+		consoleLogger->perror(errno, "CreateNonBlockSignalFD");
+	}
+
+	bool done = false;
+	coypu::event::callback_type readCB = [&done](int fd) {
+		printf("Read signal.\n");
+		struct signalfd_siginfo signal;
+		int count = ::read(fd, &signal, sizeof(signal));  
+		if (count == -1) {
+			fprintf(stderr, "Signal read error\n");
+		}
+		done = true;
+		return 0;
 	};
 
-	std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) {
-		return ::writev(fd, iovec, c);
-	};
+	if (contextSP->_eventMgr->Register(signalFD, readCB, nullptr, nullptr)) {
+		consoleLogger->perror(errno, "Register");
+	}
+
+	std::string interface;
+	config->GetValue("interface", interface);
+	assert(!interface.empty());
+
+	int sockFD = BindAndListen(consoleLogger, interface, 8080);
+
 
 	// BEGIN Websocket Server Test
 	std::string publish_path;
@@ -474,13 +562,10 @@ int main(int argc, char **argv)
 		console->info("Restore {0}", ss.str());
 	}
 
-	// coinCache->Dump(std::cout);
 	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
 
-	// hold ref to bufs
-	std::unordered_map <int, std::shared_ptr<AnonStreamType>> txtBufs;
-	
-	coypu::event::callback_type acceptCB = [wPublishStreamSP, wEventMgr, wAnonWsManager, readvCB, writevCB, &txtBufs, logger=console](int fd) {
+
+	coypu::event::callback_type acceptCB = [wPublishStreamSP, wContextSP, logger=console](int fd) {
 		struct sockaddr_in client_addr= {0};
 		socklen_t addrlen= sizeof(sockaddr_in);
 
@@ -491,39 +576,38 @@ int main(int argc, char **argv)
 
 		logger->info("accept ws {0}", clientfd);
 		
-		auto eventMgr = wEventMgr.lock();
-		auto wsManager = wAnonWsManager.lock();
 		auto publish = wPublishStreamSP.lock();
-
-		if (eventMgr && wsManager && publish) {
+		auto context = wContextSP.lock();
+		
+		if (publish && context) {
 		  std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
-		  txtBufs.insert(std::make_pair(clientfd, txtBuf));
+		  context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
 			
 		  uint64_t init_offset = UINT64_MAX;
 		  publish->Register(clientfd, init_offset);
 
-			std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, wsManager, std::placeholders::_1);
-			std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, wsManager, std::placeholders::_1);
-			std::function<int(int)> closeCB = [wAnonWsManager, wPublishStreamSP, &txtBufs] (int fd) {
-				auto wsManager = wAnonWsManager.lock();
-				if (wsManager) {
-					wsManager->Unregister(fd);
-				}
+			std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, context->_wsAnonManager, std::placeholders::_1);
+			std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, context->_wsAnonManager, std::placeholders::_1);
+			std::function<int(int)> closeCB = [wPublishStreamSP, wContextSP] (int fd) {
 				auto publish = wPublishStreamSP.lock();
 				if (publish) {
 					publish->Unregister(fd);
 				}
+				auto context = wContextSP.lock();
+				if (context) {
+				  context->_wsAnonManager->Unregister(fd);
 
-				auto b = txtBufs.find(fd);
-				if (b != txtBufs.end()) {
-				  txtBufs.erase(b);
+				  auto b = context->_txtBufs->find(fd);
+				  if (b != context->_txtBufs->end()) {
+					 context->_txtBufs->erase(b);
+				  }
 				}
 				return 0;
 			};
 
 
 			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
-			std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wPublishStreamSP, wEventMgr, logger] (uint64_t offset, off64_t len) {
+			std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wPublishStreamSP, wContextSP, logger] (uint64_t offset, off64_t len) {
 			  // could do something with a request from client here. json sub msg? with mark
 			  char jsonDoc[1024*1024] = {};
 			  if (len < sizeof(jsonDoc)) {
@@ -540,22 +624,22 @@ int main(int argc, char **argv)
 							if (jd.HasMember("offset")) {
 							  const uint64_t offset = jd["offset"].GetUint64();
 							  auto publish = wPublishStreamSP.lock();
-							  auto eventMgr = wEventMgr.lock();
-							  if (publish && eventMgr) {
+							  auto context = wContextSP.lock();
+							  if (publish && context) {
 								 if (publish->Mark(clientfd, offset)) {
 									logger->info("Mark {0} {1}" , clientfd, offset);
-									eventMgr->SetWrite(clientfd);
+									context->_eventMgr->SetWrite(clientfd);
 								 } else {
 									logger->error("Mark failed {0} {1}" , clientfd, offset);
 								 }
 							  }
 							} else {
 							  auto publish = wPublishStreamSP.lock();
-							  auto eventMgr = wEventMgr.lock();
-							  if (publish && eventMgr) {
+							  auto context = wContextSP.lock();
+							  if (publish && context) {
 								 if (publish->MarkEnd(clientfd)) {
 									logger->info("Mark end {0}" , clientfd);
-									eventMgr->SetWrite(clientfd);
+									context->_eventMgr->SetWrite(clientfd);
 								 } else {
 									logger->error("Mark end failed {0}" , clientfd);
 								 }
@@ -578,53 +662,49 @@ int main(int argc, char **argv)
 			  return;
 			};
 
-			wsManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, publish);	
-			eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+			std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
+			std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
+			context->_wsAnonManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, publish);	
+			context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 
 			int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
 			TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
 
-			std::function<int(int)> readTimerCB = [wEventMgr, wPublishStreamSP, clientfd] (int fd) {
+			std::function<int(int)> readTimerCB = [wContextSP, wPublishStreamSP, clientfd] (int fd) {
 				uint64_t x;
 				if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
 					// TODO some error
 					assert(false);
 				}
 
-				auto eventMgr = wEventMgr.lock();
+				auto context = wContextSP.lock();
 				auto publish = wPublishStreamSP.lock();
-				if (publish && eventMgr) {
+				if (publish && context) {
 					// Create a websocket message and persist
 					char pub[1024];
 					static int count = 0;
 					size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
 					WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 					publish->Push(pub, len);
-					eventMgr->SetWrite(clientfd);
+					context->_eventMgr->SetWrite(clientfd);
 				}
 
 				return 0;
 			};
-			eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
+			context->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
 		}
 
 		return 0;
 	};
 
-	if (eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
-		a->perror(errno, "Register");
+	if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
+		consoleLogger->perror(errno, "Register");
 	}
 	// END Websocket Server Test
 
-
-	// ws-feed.pro.coinbase.com
-	std::function<int(int)> set_write = std::bind(&EventManagerType::SetWrite, eventMgr, std::placeholders::_1);
-	auto openSSLMgr = std::make_shared<SSLType>(wsLogger, set_write, "/etc/ssl/certs/"); 
-	std::weak_ptr<SSLType> wOpenSSLMgr = openSSLMgr;
-	
-	std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, wsManager, std::placeholders::_1);
-	std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, wsManager, std::placeholders::_1);
-	std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
+	std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
+	std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
+	std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
 
 	bool doCB = false;
 	config->GetValue("do-gdax", doCB);
@@ -632,7 +712,7 @@ int main(int argc, char **argv)
 		int wsFD = TCPHelper::ConnectStream("ws-feed.pro.coinbase.com", 443);
 
 		if (wsFD < 0) {
-			a->error("failed to connect to ws-feed.");
+			consoleLogger->error("failed to connect to ws-feed.");
 			exit(1);
 		}
 		int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
@@ -640,38 +720,50 @@ int main(int argc, char **argv)
 		r= TCPHelper::SetNoDelay(wsFD);
 		assert(r == 0);
 
-		openSSLMgr->Register(wsFD);
+		contextSP->_openSSLMgr->Register(wsFD);
 
-		std::function <int(int,const struct iovec*,int)> sslReadCB = std::bind(&SSLType::ReadvNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
-		std::function <int(int,const struct iovec *,int)> sslWriteCB = std::bind(&SSLType::WritevNonBlock, openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+		std::function <int(int,const struct iovec*,int)> sslReadCB =
+		  std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+		std::function <int(int,const struct iovec *,int)> sslWriteCB =
+		  std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
 
 		std::vector <std::string> symbolList;
 		std::vector <std::string> channelList;
 		config->GetSeqValues("gdax-symbols", symbolList);
 		config->GetSeqValues("gdax-channels", channelList);
 
-		std::function <void(int)> onOpen = [wWsManager, symbolList, channelList] (int fd) {
-			auto wsManager = wWsManager.lock();
-			if (wsManager) {
+		std::function <void(int)> onOpen = [wContextSP, symbolList, channelList] (int fd) {
+			auto context = wContextSP.lock();
+			if (context) {
 				std::string subStr;
 				bool queue;
 
 				for (std::string channel : channelList) {
 					for (std::string pair : symbolList) {
 						subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
-						queue = wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+						queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 					}
 				}
 			}
 		};
 
-		std::function<int(int)> closeSSL = [wOpenSSLMgr, wWsManager] (int fd) {
-			auto wsManager = wWsManager.lock();
-			auto sslMgr = wOpenSSLMgr.lock();
-			if (wsManager && sslMgr) {
-				sslMgr->Unregister(fd);
-				wsManager->Unregister(fd);
+		std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+			auto context = wContextSP.lock();
+			if (context) {
+			  context->_openSSLMgr->Unregister(fd);
+			  context->_wsManager->Unregister(fd);
 			}
+			std::cout << "Clear books" << std::endl;
+			std::cout << "Reconnect!!" << std::endl;
+			// BOOK_EVENT_CLEAR
+			// WS_EVENT_CONNECT
+			// event maps to fd.
+			// when we fire. write to fd using eventfd, then read from eventfd to fire?
+
+			// should just be one eventfd. which we write a uint64_t to which is the event.
+			// read the eventId then fire the callback from the map. should be simple loop.
+			// fire event to connect. to run through this code. initial connect should be event
+			// that way there is no special logic. just fire event back to pool.
 			return 0;
 		};
 
@@ -688,34 +780,29 @@ int main(int argc, char **argv)
 				size_t pageSize = 64 * MemManager::GetPageSize();
 				off64_t curSize = 0;
 				FileUtil::GetSize(fd, curSize);
-				a->info("Current size [{0}]", curSize);
+				consoleLogger->info("Current size [{0}]", curSize);
 
 				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
 				streamSP = std::make_shared<StreamType>(bufSP);
 			} else {
-				a->perror(errno, "Open");
+				consoleLogger->perror(errno, "Open");
 			}
 		}
 		std::weak_ptr<StreamType> wStreamSP = streamSP; 
 
 		// not weak
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wAnonWsManager, wStreamSP, wCoinCache] (uint64_t offset, off64_t len) {
-			static uint64_t seqNum = 0;
-			++seqNum;
-			static BookMapType bookMap;
-			unsigned int junk= 0;
-			uint64_t start = 0, end = 0;
-
-			auto wsManager = wAnonWsManager.lock();
+		
+		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wStreamSP, wCoinCache, wContextSP] (uint64_t offset, off64_t len) {
 			auto publish = wPublishStreamSP.lock();
 			auto stream = wStreamSP.lock();
 			auto coinCache = wCoinCache.lock();
-			if (publish && wsManager && stream  && coinCache) {
+			auto context = wContextSP.lock();
+			if (publish && stream  && coinCache && context) {
 				// std::cout << stream->Available() << std::endl;
-				if (!(seqNum % 10000)) {
+				if (!(coinCache->CheckSeq() % 10000)) {
 					std::stringstream ss;
 					ss << *coinCache;
-					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, seqNum, ss.str());
+					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, coinCache->CheckSeq(), ss.str());
 				}
 
 				char jsonDoc[1024*1024] = {};
@@ -725,6 +812,8 @@ int main(int argc, char **argv)
 						jsonDoc[len] = 0;
 						Document jd;
 
+			         uint64_t start = 0, end = 0;
+			         unsigned int junk= 0;
 						start = __rdtscp(&junk);
     					jd.Parse(jsonDoc);
 						end = __rdtscp(&junk);
@@ -734,8 +823,8 @@ int main(int argc, char **argv)
 						const char * type = jd["type"].GetString();
 						if (!strcmp(type, "snapshot")) {
 							const char *product = jd["product_id"].GetString();
-							bookMap[product] = std::make_shared<BookType>(); // create string
-							std::shared_ptr<BookType> book = bookMap[product];
+							context->_bookMap->insert(std::make_pair(product, std::make_shared<BookType>())); // create string
+							std::shared_ptr<BookType> book = (*context->_bookMap)[product];
 							assert(book);
 
 							const Value& bids = jd["bids"];
@@ -762,11 +851,11 @@ int main(int argc, char **argv)
 							const char *product = jd["product_id"].GetString();
 							static std::string lookup;
 							lookup = product; // should call look.reserve(8);
-							if (bookMap.find(lookup) == bookMap.end()) {
+							if (context->_bookMap->find(lookup) == context->_bookMap->end()) {
 							  std::cerr << "Missing book " << lookup << std::endl;
 							  //							  return;
 							}
-							std::shared_ptr<BookType> book = bookMap[lookup];
+							std::shared_ptr<BookType> book = (*context->_bookMap)[lookup];
 							assert(book);
 
 							const Value& changes = jd["changes"];
@@ -805,7 +894,7 @@ int main(int argc, char **argv)
 																bid.qty, bid.px, ask.px, ask.qty);
 								WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 								publish->Push(pub, len);
-								wsManager->SetWriteAll();
+								context->_wsAnonManager->SetWriteAll();
 
 									// std::cout << std::endl << std::endl;
 									// book->RDumpAsk(20, true);			
@@ -911,7 +1000,7 @@ int main(int argc, char **argv)
 							  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
 							  WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 							  publish->Push(pub, len);
-							  wsManager->SetWriteAll();
+							  context->_wsAnonManager->SetWriteAll();
 							}
 						} else if (!strcmp(type, "subscriptions")) {
 							// skip
@@ -929,73 +1018,26 @@ int main(int argc, char **argv)
 		};
 		
 		// stream is associated with the fd. socket can only support one websocket connection at a time.
-		wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, streamSP, nullptr);	
-		eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+		contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, streamSP, nullptr);	
+		contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 
 		// Sets the end-point 
-		wsManager->Stream(wsFD, "/", "ws-feed.pro.coinbase.com", "http://ws-feed.pro.coinbase.com"); 
+		contextSP->_wsManager->Stream(wsFD, "/", "ws-feed.pro.coinbase.com", "http://ws-feed.pro.coinbase.com"); 
 	}
-
+	
 	// Test client
 	config->GetValue("do-server-test", doCB);
-	if (doCB)
-	{
-		int wsFD = TCPHelper::ConnectStream("localhost", 8765);
-		assert(wsFD > 0);
-		wsManager->RegisterConnection(wsFD, false, readvCB, writevCB, nullptr, nullptr, nullptr, nullptr);	
-		eventMgr->Register(wsFD, wsReadCB, wsWriteCB, wsCloseCB);
-
-		wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
-	}
-
-	// BEGIN Admin Manager (Using wsLogger)
-	auto adminMgr = std::make_shared<AdminManagerType>(wsLogger, set_write_ws);
-
-	int adminFD = BindAndListen(a, interface, 9999);
-	assert(adminFD > 0);
-	std::weak_ptr<AdminManagerType> wAdminManager = adminMgr;
-
-	coypu::event::callback_type adminAcceptCB = [wAdminManager, wEventMgr] (int fd) {
-		struct sockaddr_in client_addr= {0};
-		socklen_t addrlen= sizeof(sockaddr_in);
-
-		// using IP V4
-		int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
-		auto adminManager = wAdminManager.lock();
-		auto eventMgr = wEventMgr.lock();
-
-		if (adminManager && eventMgr) {
-			std::function<int(int,const struct iovec *,int)> rv = [] (int fd, const struct iovec *iov, int count) -> int { return ::readv(fd, iov, count); };
-			std::function<int(int,const struct iovec *,int)> wv = [] (int fd, const struct iovec *iov, int count) -> int { return ::writev(fd, iov, count); };
-			adminManager->Register(clientfd, rv, wv);	
-
-			std::function<int(int)> readCB = std::bind(&AdminManagerType::Read, adminManager, std::placeholders::_1);
-			std::function<int(int)> writeCB = std::bind(&AdminManagerType::Write, adminManager, std::placeholders::_1);
-			std::function<int(int)> closeCB = [wAdminManager] (int fd) {
-				auto adminManager = wAdminManager.lock();
-				if (adminManager) {
-					adminManager->Unregister(fd);
-				}
-				return 0;
-			};
-			eventMgr->Register(clientfd, readCB, writeCB, closeCB);
-		}
-
-		return 0;
-	};
-
-	if (eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
-		a->perror(errno, "Register");
-	}
-
-	// END Admin Manager
+	if (doCB) DoServerTest(contextSP);
+	
+	SetupAdmin(consoleLogger, interface, wContextSP);
 
 	// watch out for threading on loggers
-	std::thread t1(bar, eventMgr, std::ref(done));
+	std::thread t1(bar, contextSP, std::ref(done));
 	t1.join();
-	eventMgr->Close();
+	contextSP->_eventMgr->Close();
 
 	google::protobuf::ShutdownProtobufLibrary();
 	
 	return 0;
 }
+
