@@ -145,6 +145,7 @@ const std::string COYPU_CACHE_PATH = "stream/cache/data";
 
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
+	 _consoleLogger = consoleLogger;
 	 _bookMap = std::make_shared<BookMapType>();
 	 _txtBufs = std::make_shared<TxtBufMapType>();
 	 _eventMgr = std::make_shared<EventManagerType>(consoleLogger);
@@ -154,6 +155,8 @@ typedef struct CoypuContextS {
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
 	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/"); 
   }
+
+  LogType _consoleLogger;
   
   std::shared_ptr <BookMapType> _bookMap;
   std::shared_ptr <TxtBufMapType> _txtBufs;
@@ -163,6 +166,11 @@ typedef struct CoypuContextS {
   std::shared_ptr <AnonWebSocketManagerType> _wsAnonManager;
   std::shared_ptr <AdminManagerType> _adminManager;
   std::shared_ptr <SSLType> _openSSLMgr;
+
+  std::shared_ptr <PublishStreamType> _publishStreamSP;
+  std::shared_ptr <PublishStreamType> _cacheStreamSP;
+  std::shared_ptr <CacheType> _coinCache;
+  std::shared_ptr <StreamType> _gdaxStreamSP;
 } CoypuContext;
 
 void bar (std::shared_ptr<CoypuContext> context, bool &done) {
@@ -376,6 +384,172 @@ void SetupAdmin (LogType &consoleLogger, std::string &interface, std::weak_ptr<C
   }
 }
 
+void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> &contextSP) {
+  	std::string publish_path;
+	config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
+	contextSP->_publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
+
+	std::string cache_path;
+	config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
+	contextSP->_cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
+
+	contextSP->_coinCache = std::make_shared<CacheType>(contextSP->_cacheStreamSP);
+
+	std::function<void(const char *, ssize_t)> restore = [&contextSP] (const char *data, ssize_t len) {
+		assert(len == sizeof(CoinCache));
+		const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
+		contextSP->_coinCache->Restore(*cc);
+	};
+
+	if (RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore) < 0) {
+	  contextSP->_consoleLogger->perror(errno, "RestoreStore");
+	}
+
+	std::stringstream ss;
+	ss << *(contextSP->_coinCache);
+	contextSP->_consoleLogger->info("Restore {0}", ss.str());
+	contextSP->_consoleLogger->info("Cache check seqnum[{0}]", contextSP->_coinCache->CheckSeq());
+
+	std::string storeFile("gdax.store");
+	std::shared_ptr<StreamType> streamSP = nullptr; 
+
+	bool b = false;
+	FileUtil::Exists(storeFile.c_str(), b);
+	// open in direct mode
+	int fd = FileUtil::Open(storeFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+	if (fd >= 0) {
+	  size_t pageSize = 64 * MemManager::GetPageSize();
+	  off64_t curSize = 0;
+	  FileUtil::GetSize(fd, curSize);
+	  contextSP->_consoleLogger->info("Current size [{0}]", curSize);
+	  
+	  std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
+	  contextSP->_gdaxStreamSP = std::make_shared<StreamType>(bufSP);
+	} else {
+	  contextSP->_consoleLogger->perror(errno, "Open");
+	}
+}
+
+void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogType &logger, int fd) {
+  std::weak_ptr <CoypuContext> wContextSP = context;
+  struct sockaddr_in client_addr= {0};
+  socklen_t addrlen= sizeof(sockaddr_in);
+  
+  // using IP V4
+  int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
+  if (TCPHelper::SetNoDelay(clientfd)) {
+  }
+  
+  logger->info("accept ws {0}", clientfd);
+  
+  if (context) {
+	 std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+	 context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
+	 
+	 uint64_t init_offset = UINT64_MAX;
+	 context->_publishStreamSP->Register(clientfd, init_offset);
+	 
+	 std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, context->_wsAnonManager, std::placeholders::_1);
+	 std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, context->_wsAnonManager, std::placeholders::_1);
+	 std::function<int(int)> closeCB = [wContextSP] (int fd) {
+		auto context = wContextSP.lock();
+		if (context) {
+		  context->_publishStreamSP->Unregister(fd);
+		  context->_wsAnonManager->Unregister(fd);
+
+		  auto b = context->_txtBufs->find(fd);
+		  if (b != context->_txtBufs->end()) {
+			 context->_txtBufs->erase(b);
+		  }
+		}
+		return 0;
+	 };
+
+	 std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wContextSP, logger] (uint64_t offset, off64_t len) {
+		// could do something with a request from client here. json sub msg? with mark
+		char jsonDoc[1024*1024] = {};
+		if (len < sizeof(jsonDoc)) {
+		  // sad copying but nice json library
+		  if(txtBuf->Pop(jsonDoc, offset, len)) {
+			 jsonDoc[len] = 0;
+			 logger->debug("{0} doc {1}", clientfd, jsonDoc);
+					
+			 Document jd;
+			 if (!jd.Parse(jsonDoc).HasParseError()) {
+				if (jd.HasMember("cmd")) {
+				  const char *cmd = jd["cmd"].GetString();
+				  if (!strncmp(cmd, "mark", 4)) {
+					 if (jd.HasMember("offset")) {
+						const uint64_t offset = jd["offset"].GetUint64();
+						auto context = wContextSP.lock();
+						if (context) {
+						  if (context->_publishStreamSP->Mark(clientfd, offset)) {
+							 logger->info("Mark {0} {1}" , clientfd, offset);
+							 context->_eventMgr->SetWrite(clientfd);
+						  } else {
+							 logger->error("Mark failed {0} {1}" , clientfd, offset);
+						  }
+						}
+					 } else {
+						auto context = wContextSP.lock();
+						if (context) {
+						  if (context->_publishStreamSP->MarkEnd(clientfd)) {
+							 logger->info("Mark end {0}" , clientfd);
+							 context->_eventMgr->SetWrite(clientfd);
+						  } else {
+							 logger->error("Mark end failed {0}" , clientfd);
+						  }
+						}
+					 }
+				  } else {
+					 logger->error("Unsupported command {0}", cmd);
+				  }
+				}
+			 } else {
+				logger->error("Error(offset {0}): {1}", 
+								  (unsigned)jd.GetErrorOffset(),
+								  GetParseError_En(jd.GetParseError()));
+			 }
+		  } else {
+			 logger->error("Pop failed");
+		  }
+		}
+		
+		return;
+	 };
+	 
+	 std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
+	 std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
+	 context->_wsAnonManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);	
+	 context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+	 
+	 int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
+	 TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
+	 
+	 std::function<int(int)> readTimerCB = [wContextSP, clientfd] (int fd) {
+		uint64_t x;
+		if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
+		  // TODO some error
+		  assert(false);
+		}
+		
+		auto context = wContextSP.lock();
+		if (context) {
+		  // Create a websocket message and persist
+		  char pub[1024];
+		  static int count = 0;
+		  size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
+		  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+		  context->_publishStreamSP->Push(pub, len);
+		  context->_eventMgr->SetWrite(clientfd);
+		}
+		
+		return 0;
+	 };
+	 context->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
+  }
+}
+
 int main(int argc, char **argv)
 {
 	processRust(10);
@@ -524,183 +698,29 @@ int main(int argc, char **argv)
 		consoleLogger->perror(errno, "Register");
 	}
 
+	CreateStores(config, contextSP);
+	
+	// BEGIN Create websocket service
 	std::string interface;
 	config->GetValue("interface", interface);
 	assert(!interface.empty());
-
 	int sockFD = BindAndListen(consoleLogger, interface, 8080);
-
-
-	// BEGIN Websocket Server Test
-	std::string publish_path;
-	config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
-	std::shared_ptr<PublishStreamType> publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
-	assert(publishStreamSP != nullptr);
-	std::weak_ptr<PublishStreamType> wPublishStreamSP = publishStreamSP; 
-
-	std::string cache_path;
-	config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
-	std::shared_ptr<PublishStreamType> cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
-	assert(cacheStreamSP != nullptr);
-
-	std::shared_ptr<CacheType> coinCache = std::make_shared<CacheType>(cacheStreamSP);
-	std::weak_ptr<CacheType> wCoinCache = coinCache;
-
-	std::function<void(const char *, ssize_t)> restore = [&coinCache] (const char *data, ssize_t len) {
-		assert(len == sizeof(CoinCache));
-		const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
-		coinCache->Restore(*cc);
-	};
-	int xx = RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore);
-	if (xx < 0) {
-		wsLogger->perror(errno, "RestoreStore");
+	if (sockFD > 0) {
+	  coypu::event::callback_type acceptCB = [wContextSP, logger=consoleLogger](int fd) {
+		 auto context = wContextSP.lock();
+		 if (context) {
+			AcceptWebsocketClient(context, logger, fd);
+		 }
+		 return 0;
+	  };
+	  
+	  if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
+		 consoleLogger->perror(errno, "Register");
+	  }
+	} else {
+	  consoleLogger->error("Failed to create websocket fd");
 	}
-
-	{
-		std::stringstream ss;
-		ss << *coinCache;
-		console->info("Restore {0}", ss.str());
-	}
-
-	console->info("Cache check seqnum[{0}]", coinCache->CheckSeq());
-
-
-	coypu::event::callback_type acceptCB = [wPublishStreamSP, wContextSP, logger=console](int fd) {
-		struct sockaddr_in client_addr= {0};
-		socklen_t addrlen= sizeof(sockaddr_in);
-
-		// using IP V4
-		int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
-		if (TCPHelper::SetNoDelay(clientfd)) {
-		}
-
-		logger->info("accept ws {0}", clientfd);
-		
-		auto publish = wPublishStreamSP.lock();
-		auto context = wContextSP.lock();
-		
-		if (publish && context) {
-		  std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
-		  context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
-			
-		  uint64_t init_offset = UINT64_MAX;
-		  publish->Register(clientfd, init_offset);
-
-			std::function<int(int)> readCB = std::bind(&AnonWebSocketManagerType::Read, context->_wsAnonManager, std::placeholders::_1);
-			std::function<int(int)> writeCB = std::bind(&AnonWebSocketManagerType::Write, context->_wsAnonManager, std::placeholders::_1);
-			std::function<int(int)> closeCB = [wPublishStreamSP, wContextSP] (int fd) {
-				auto publish = wPublishStreamSP.lock();
-				if (publish) {
-					publish->Unregister(fd);
-				}
-				auto context = wContextSP.lock();
-				if (context) {
-				  context->_wsAnonManager->Unregister(fd);
-
-				  auto b = context->_txtBufs->find(fd);
-				  if (b != context->_txtBufs->end()) {
-					 context->_txtBufs->erase(b);
-				  }
-				}
-				return 0;
-			};
-
-
-			// std::bind(&WebSocketManagerType::Unregister, wsManager, std::placeholders::_1);
-			std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wPublishStreamSP, wContextSP, logger] (uint64_t offset, off64_t len) {
-			  // could do something with a request from client here. json sub msg? with mark
-			  char jsonDoc[1024*1024] = {};
-			  if (len < sizeof(jsonDoc)) {
-				 // sad copying but nice json library
-				 if(txtBuf->Pop(jsonDoc, offset, len)) {
-					jsonDoc[len] = 0;
-					logger->debug("{0} doc {1}", clientfd, jsonDoc);
-					
-					Document jd;
-					if (!jd.Parse(jsonDoc).HasParseError()) {
-					  if (jd.HasMember("cmd")) {
-						 const char *cmd = jd["cmd"].GetString();
-						 if (!strncmp(cmd, "mark", 4)) {
-							if (jd.HasMember("offset")) {
-							  const uint64_t offset = jd["offset"].GetUint64();
-							  auto publish = wPublishStreamSP.lock();
-							  auto context = wContextSP.lock();
-							  if (publish && context) {
-								 if (publish->Mark(clientfd, offset)) {
-									logger->info("Mark {0} {1}" , clientfd, offset);
-									context->_eventMgr->SetWrite(clientfd);
-								 } else {
-									logger->error("Mark failed {0} {1}" , clientfd, offset);
-								 }
-							  }
-							} else {
-							  auto publish = wPublishStreamSP.lock();
-							  auto context = wContextSP.lock();
-							  if (publish && context) {
-								 if (publish->MarkEnd(clientfd)) {
-									logger->info("Mark end {0}" , clientfd);
-									context->_eventMgr->SetWrite(clientfd);
-								 } else {
-									logger->error("Mark end failed {0}" , clientfd);
-								 }
-							  }
-							}
-						 } else {
-							logger->error("Unsupported command {0}", cmd);
-						 }
-					  }
-					} else {
-					  logger->error("Error(offset {0}): {1}", 
-										 (unsigned)jd.GetErrorOffset(),
-										 GetParseError_En(jd.GetParseError()));
-					}
-				 } else {
-					logger->error("Pop failed");
-				 }
-			  }
-
-			  return;
-			};
-
-			std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
-			std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
-			context->_wsAnonManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, publish);	
-			context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
-
-			int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
-			TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
-
-			std::function<int(int)> readTimerCB = [wContextSP, wPublishStreamSP, clientfd] (int fd) {
-				uint64_t x;
-				if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
-					// TODO some error
-					assert(false);
-				}
-
-				auto context = wContextSP.lock();
-				auto publish = wPublishStreamSP.lock();
-				if (publish && context) {
-					// Create a websocket message and persist
-					char pub[1024];
-					static int count = 0;
-					size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
-					WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-					publish->Push(pub, len);
-					context->_eventMgr->SetWrite(clientfd);
-				}
-
-				return 0;
-			};
-			context->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
-		}
-
-		return 0;
-	};
-
-	if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
-		consoleLogger->perror(errno, "Register");
-	}
-	// END Websocket Server Test
+	// END
 
 	std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
 	std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
@@ -709,6 +729,8 @@ int main(int argc, char **argv)
 	bool doCB = false;
 	config->GetValue("do-gdax", doCB);
 	if (doCB) {
+	  //StreamGDAX(contextSP, "ws-feed.pro.coinbase.com", 443);
+	  
 		int wsFD = TCPHelper::ConnectStream("ws-feed.pro.coinbase.com", 443);
 
 		if (wsFD < 0) {
@@ -767,48 +789,23 @@ int main(int argc, char **argv)
 			return 0;
 		};
 
-		// TODO Fix
-		std::string storeFile("gdax.store");
-		std::shared_ptr<StreamType> streamSP = nullptr; 
 
-		if (!storeFile.empty()) {
-			bool b = false;
-			FileUtil::Exists(storeFile.c_str(), b);
-			// open in direct mode
-			int fd = FileUtil::Open(storeFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-			if (fd >= 0) {
-				size_t pageSize = 64 * MemManager::GetPageSize();
-				off64_t curSize = 0;
-				FileUtil::GetSize(fd, curSize);
-				consoleLogger->info("Current size [{0}]", curSize);
-
-				std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
-				streamSP = std::make_shared<StreamType>(bufSP);
-			} else {
-				consoleLogger->perror(errno, "Open");
-			}
-		}
-		std::weak_ptr<StreamType> wStreamSP = streamSP; 
-
-		// not weak
 		
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wPublishStreamSP, wStreamSP, wCoinCache, wContextSP] (uint64_t offset, off64_t len) {
-			auto publish = wPublishStreamSP.lock();
-			auto stream = wStreamSP.lock();
-			auto coinCache = wCoinCache.lock();
+		std::function <void(uint64_t, uint64_t)> onText = [&console, wContextSP] (uint64_t offset, off64_t len) {
 			auto context = wContextSP.lock();
-			if (publish && stream  && coinCache && context) {
+
+			if (context) {
 				// std::cout << stream->Available() << std::endl;
-				if (!(coinCache->CheckSeq() % 10000)) {
+			  if (!(context->_coinCache->CheckSeq() % 10000)) {
 					std::stringstream ss;
-					ss << *coinCache;
-					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, coinCache->CheckSeq(), ss.str());
+					ss << *(context->_coinCache);
+					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
 				}
 
 				char jsonDoc[1024*1024] = {};
 				if (len < sizeof(jsonDoc)) {
 					// sad copying but nice json library
-					if(stream->Pop(jsonDoc, offset, len)) {
+				  if(context->_gdaxStreamSP->Pop(jsonDoc, offset, len)) {
 						jsonDoc[len] = 0;
 						Document jd;
 
@@ -892,8 +889,8 @@ int main(int argc, char **argv)
 								char pub[1024];
 								size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
 																bid.qty, bid.px, ask.px, ask.qty);
-								WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-								publish->Push(pub, len);
+								WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+								context->_publishStreamSP->Push(pub, len);
 								context->_wsAnonManager->SetWriteAll();
 
 									// std::cout << std::endl << std::endl;
@@ -925,7 +922,7 @@ int main(int argc, char **argv)
 
 							// product_id, time, high_low,volume,open,price
 
-							CoinCache cc(coinCache->NextSeq());
+							CoinCache cc(context->_coinCache->NextSeq());
 							if (product) {
 								memcpy(cc._key, product, std::max(sizeof(cc._key)-1, ::strlen(product)));
 							}
@@ -991,15 +988,15 @@ int main(int argc, char **argv)
 							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
 							
 							start = __rdtscp(&junk);
-							coinCache->Push(cc);
+							context->_coinCache->Push(cc);
 							end = __rdtscp(&junk);
 							//printf("%zu\n", (end-start));
 
 							if (tradeId != UINT64_MAX) {
 							  char pub[1024];
 							  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
-							  WebSocketManagerType::WriteFrame(publish, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-							  publish->Push(pub, len);
+							  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+							  context->_publishStreamSP->Push(pub, len);
 							  context->_wsAnonManager->SetWriteAll();
 							}
 						} else if (!strcmp(type, "subscriptions")) {
@@ -1018,7 +1015,7 @@ int main(int argc, char **argv)
 		};
 		
 		// stream is associated with the fd. socket can only support one websocket connection at a time.
-		contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, streamSP, nullptr);	
+		contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
 		contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 
 		// Sets the end-point 
