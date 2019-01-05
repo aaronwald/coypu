@@ -317,16 +317,16 @@ int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::s
 }
 
 template <typename T, typename X>
-std::shared_ptr<EventCBManager<T>> CreateCBManager (typename EventCBManager<T>::write_cb_type set_write, std::shared_ptr<X> eventMgr) {
+std::shared_ptr<EventCBManager<T>> CreateCBManager (std::shared_ptr<CoypuContext> &contextSP) {
   typedef EventCBManager<T> event_type;
   int fd = EventFDHelper::CreateNonBlockEventFD(0);
   if (fd < 0) return nullptr;
 
-  std::shared_ptr <event_type> sp = std::make_shared<event_type>(fd, set_write);
+  std::shared_ptr <event_type> sp = std::make_shared<event_type>(fd, contextSP->_set_write_ws);
   std::function<int(int)> readCB = std::bind(&event_type::Read, sp, std::placeholders::_1);
   std::function<int(int)> writeCB = std::bind(&event_type::Write, sp, std::placeholders::_1);
   std::function<int(int)> closeCB = std::bind(&event_type::Close, sp, std::placeholders::_1);
-  if (eventMgr->Register(fd, readCB, writeCB, closeCB) < 0) return nullptr;
+  if (contextSP->_eventMgr->Register(fd, readCB, writeCB, closeCB) < 0) return nullptr;
   
   return sp;
 }
@@ -550,9 +550,303 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
   }
 }
 
+void StreamGDAX (std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port) {
+  int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  std::weak_ptr <CoypuContext> wContextSP = contextSP;
+
+  if (wsFD < 0) {
+	 contextSP->_consoleLogger->error("failed to connect to ws-feed.");
+	 exit(1);
+  }
+  int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
+  assert(r == 0);
+  r= TCPHelper::SetNoDelay(wsFD);
+  assert(r == 0);
+
+  contextSP->_openSSLMgr->Register(wsFD);
+
+  std::function <int(int,const struct iovec*,int)> sslReadCB =
+	 std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+  std::function <int(int,const struct iovec *,int)> sslWriteCB =
+	 std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+
+  std::vector <std::string> symbolList;
+  std::vector <std::string> channelList;
+  config->GetSeqValues("gdax-symbols", symbolList);
+  config->GetSeqValues("gdax-channels", channelList);
+
+  std::function <void(int)> onOpen = [wContextSP, symbolList, channelList] (int fd) {
+	 auto context = wContextSP.lock();
+	 if (context) {
+		std::string subStr;
+		bool queue;
+
+		for (std::string channel : channelList) {
+		  for (std::string pair : symbolList) {
+			 subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
+			 queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+		  }
+		}
+	 }
+  };
+
+  std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+	 auto context = wContextSP.lock();
+	 if (context) {
+		context->_openSSLMgr->Unregister(fd);
+		context->_wsManager->Unregister(fd);
+	 }
+	 std::cout << "Clear books" << std::endl;
+	 std::cout << "Reconnect!!" << std::endl;
+	 // BOOK_EVENT_CLEAR
+	 // WS_EVENT_CONNECT
+	 // event maps to fd.
+	 // when we fire. write to fd using eventfd, then read from eventfd to fire?
+
+	 // should just be one eventfd. which we write a uint64_t to which is the event.
+	 // read the eventId then fire the callback from the map. should be simple loop.
+	 // fire event to connect. to run through this code. initial connect should be event
+	 // that way there is no special logic. just fire event back to pool.
+	 return 0;
+  };
+
+  std::function <void(uint64_t, uint64_t)> onText = [wContextSP] (uint64_t offset, off64_t len) {
+	 auto context = wContextSP.lock();
+
+	 if (context) {
+		// std::cout << stream->Available() << std::endl;
+		if (!(context->_coinCache->CheckSeq() % 10000)) {
+		  std::stringstream ss;
+		  ss << *(context->_coinCache);
+		  context->_consoleLogger->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
+		}
+
+		char jsonDoc[1024*1024] = {};
+		if (len < sizeof(jsonDoc)) {
+		  // sad copying but nice json library
+		  if(context->_gdaxStreamSP->Pop(jsonDoc, offset, len)) {
+			 jsonDoc[len] = 0;
+			 Document jd;
+
+			 uint64_t start = 0, end = 0;
+			 unsigned int junk= 0;
+			 start = __rdtscp(&junk);
+			 jd.Parse(jsonDoc);
+			 end = __rdtscp(&junk);
+			 //printf("%zu\n", (end-start));
+					 
+
+			 const char * type = jd["type"].GetString();
+			 if (!strcmp(type, "snapshot")) {
+				const char *product = jd["product_id"].GetString();
+				context->_bookMap->insert(std::make_pair(product, std::make_shared<BookType>())); // create string
+				std::shared_ptr<BookType> book = (*context->_bookMap)[product];
+				assert(book);
+
+				const Value& bids = jd["bids"];
+				const Value& asks = jd["asks"];
+
+				for (SizeType i = 0; i < bids.Size(); ++i) {
+				  const char * px = bids[i][0].GetString();
+				  const char * qty = bids[i][0].GetString();
+				  uint64_t ipx = atof(px) * 100000000;
+				  uint64_t iqty = atof(qty) * 100000000;
+				  int outindex = -1;
+				  book->InsertBid(ipx, iqty, outindex);
+				}
+
+				for (SizeType i = 0; i < asks.Size(); ++i) {
+				  const char * px = asks[i][0].GetString();
+				  const char * qty = asks[i][0].GetString();
+				  uint64_t ipx = atof(px) * 100000000;
+				  uint64_t iqty = atof(qty) * 100000000;
+				  int outindex = -1;
+				  book->InsertAsk(ipx, iqty, outindex);
+				}
+			 } else if (!strcmp(type, "l2update")) {
+				const char *product = jd["product_id"].GetString();
+				static std::string lookup;
+				lookup = product; // should call look.reserve(8);
+				if (context->_bookMap->find(lookup) == context->_bookMap->end()) {
+				  std::cerr << "Missing book " << lookup << std::endl;
+				  //							  return;
+				}
+				std::shared_ptr<BookType> book = (*context->_bookMap)[lookup];
+				assert(book);
+
+				const Value& changes = jd["changes"];
+				for (SizeType i = 0; i < changes.Size(); ++i) {
+				  const char * side = changes[i][0].GetString();
+				  const char * px = changes[i][1].GetString();
+				  const char * qty = changes[i][2].GetString();
+
+				  uint64_t ipx = atof(px) * 100000000;
+				  uint64_t iqty = atof(qty) * 100000000;
+				  int outindex = -1;
+
+				  if(!strcmp(side, "buy")) {
+					 if (iqty == 0) {
+						book->EraseBid(ipx, outindex);
+					 } else {
+						if (!book->UpdateBid(ipx, iqty, outindex)) {
+						  book->InsertBid(ipx, iqty, outindex);
+						}
+					 }
+				  } else {
+					 if (iqty == 0) {
+						book->EraseAsk(ipx, outindex);
+					 } else {
+						if (!book->UpdateAsk(ipx, iqty, outindex)) {
+						  book->InsertAsk(ipx, iqty, outindex);
+						}
+					 }
+				  }
+
+				  CoinLevel bid,ask;
+				  book->BestBid(bid);
+				  book->BestAsk(ask);
+				  char pub[1024];
+				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
+												  bid.qty, bid.px, ask.px, ask.qty);
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+				  context->_publishStreamSP->Push(pub, len);
+				  context->_wsAnonManager->SetWriteAll();
+
+				  // std::cout << std::endl << std::endl;
+				  // book->RDumpAsk(20, true);			
+				  // std::cout << "---" << std::endl;
+				  // book->RDumpBid(20);			
+				}
+			 } else if (!strcmp(type, "error")) {
+				context->_consoleLogger->error("{0}", jsonDoc);
+			 } else if (!strcmp(type, "ticker")) {
+				const char *product = jd["product_id"].GetString();
+				const char *vol24 = jd["volume_24h"].GetString();
+							
+				// "best_ask":"6423.6",
+				// "best_bid":"6423.59",
+				// x"high_24h":"6471.00000000",
+				// "last_size":"0.00147931",
+				// x"low_24h":"6384.04000000",
+				// "open_24h":"6388.00000000",
+				// "price":"6423.60000000",
+				// x"product_id":"BTC-USD",
+				// x"sequence":7230193662,
+				// "side":"buy",
+				// x"time":"2018-10-24T16:48:56.559000Z",
+				// "trade_id":52862394,
+				// "type":"ticker",
+				// x"volume_24h":"5365.44495907",
+				// "volume_30d":"195043.05076131"
+
+				// product_id, time, high_low,volume,open,price
+
+				CoinCache cc(context->_coinCache->NextSeq());
+				if (product) {
+				  memcpy(cc._key, product, std::max(sizeof(cc._key)-1, ::strlen(product)));
+				}
+
+				const char *timeRaw =jd.HasMember("time") ? jd["time"].GetString(): nullptr;
+				if (timeRaw) {
+				  std::string timeStr(timeRaw);
+
+				  if (!timeStr.empty()) {
+					 struct tm tm;
+					 memset(&tm, 0, sizeof(struct tm));
+					 strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
+
+					 size_t i = timeStr.find('.');
+					 if (i > 0) {
+						cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
+						cc._seconds  = mktime(&tm);
+					 }
+				  }
+				}
+							
+				const uint64_t tradeId = jd.HasMember("trade_id") ? jd["trade_id"].GetUint64() : UINT64_MAX;
+				const char *h24 = jd.HasMember("high_24h") ? jd["high_24h"].GetString() : nullptr;
+				const char *l24 = jd.HasMember("low_24h") ? jd["low_24h"].GetString() : nullptr;
+				const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
+				const char *px = jd.HasMember("price") ? jd["price"].GetString() : nullptr;
+				const char *lastSize = jd.HasMember("last_size") ? jd["last_size"].GetString() : nullptr;
+
+				if (h24) {
+				  cc._high24 = atof(h24);
+				}
+
+				if (l24) {
+				  cc._low24 = atof(l24);
+				}
+
+				if (v24) {
+				  cc._vol24 = atof(v24);
+				}
+
+				if (px) {
+				  cc._last = atof(px);
+				}
+
+				if (jd.HasMember("sequence")) {
+				  cc._origseqno = jd["sequence"].GetUint64();
+				}
+
+				coypu::msg::CoinCache gCC;
+				gCC.set_high24(cc._high24);
+				gCC.set_low24(cc._low24);
+				gCC.set_vol24(cc._vol24);
+				gCC.set_last(cc._last);
+				std::string outStr;
+				if (gCC.SerializeToString(&outStr)) {
+							  
+				} else {
+				  assert(false);
+				}
+							
+							
+				// write protobuf to a websocket publish stream. doesnt need to be sequenced
+				// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
+							
+				start = __rdtscp(&junk);
+				context->_coinCache->Push(cc);
+				end = __rdtscp(&junk);
+				//printf("%zu\n", (end-start));
+
+				if (tradeId != UINT64_MAX) {
+				  char pub[1024];
+				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+				  context->_publishStreamSP->Push(pub, len);
+				  context->_wsAnonManager->SetWriteAll();
+				}
+			 } else if (!strcmp(type, "subscriptions")) {
+				// skip
+			 } else if (!strcmp(type, "heartbeat")) {
+				// skip
+			 } else {
+				context->_consoleLogger->warn("{0} {1}", type, jsonDoc); // spdlog does not do streams
+			 }
+		  } else {
+			 assert(false);
+		  }
+		}
+	 }
+  };
+		
+  // stream is associated with the fd. socket can only support one websocket connection at a time.
+  std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
+		
+  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
+  contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+
+  // Sets the end-point 
+  contextSP->_wsManager->Stream(wsFD, "/", hostname, "http://ws-feed.pro.coinbase.com"); 
+}
+
 int main(int argc, char **argv)
 {
-	processRust(10);
+  //processRust(10);
 
 	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
 
@@ -665,11 +959,9 @@ int main(int argc, char **argv)
 
 	auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
 	std::weak_ptr <CoypuContext> wContextSP = contextSP;
-	
-	std::function<int(int)> set_write_ws = std::bind(&EventManagerType::SetWrite, contextSP->_eventMgr, std::placeholders::_1);
 	contextSP->_eventMgr->Init();
 	
-	auto cbMgr = CreateCBManager<cb_type, EventManagerType>(set_write_ws, contextSP->_eventMgr);
+	auto cbMgr = CreateCBManager<cb_type, EventManagerType>(contextSP);
 	assert(cbMgr);
 
 	sigset_t mask;
@@ -722,307 +1014,11 @@ int main(int argc, char **argv)
 	}
 	// END
 
-	std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
-	std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
-	std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
 
 	bool doCB = false;
 	config->GetValue("do-gdax", doCB);
-	if (doCB) {
-	  //StreamGDAX(contextSP, "ws-feed.pro.coinbase.com", 443);
-	  
-		int wsFD = TCPHelper::ConnectStream("ws-feed.pro.coinbase.com", 443);
-
-		if (wsFD < 0) {
-			consoleLogger->error("failed to connect to ws-feed.");
-			exit(1);
-		}
-		int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
-		assert(r == 0);
-		r= TCPHelper::SetNoDelay(wsFD);
-		assert(r == 0);
-
-		contextSP->_openSSLMgr->Register(wsFD);
-
-		std::function <int(int,const struct iovec*,int)> sslReadCB =
-		  std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
-		std::function <int(int,const struct iovec *,int)> sslWriteCB =
-		  std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
-
-		std::vector <std::string> symbolList;
-		std::vector <std::string> channelList;
-		config->GetSeqValues("gdax-symbols", symbolList);
-		config->GetSeqValues("gdax-channels", channelList);
-
-		std::function <void(int)> onOpen = [wContextSP, symbolList, channelList] (int fd) {
-			auto context = wContextSP.lock();
-			if (context) {
-				std::string subStr;
-				bool queue;
-
-				for (std::string channel : channelList) {
-					for (std::string pair : symbolList) {
-						subStr= "{\"type\": \"subscribe\", \"channels\": [{\"name\": \"" + channel + "\", \"product_ids\": [\"" + pair + "\"]}]}";
-						queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
-					}
-				}
-			}
-		};
-
-		std::function<int(int)> closeSSL = [wContextSP] (int fd) {
-			auto context = wContextSP.lock();
-			if (context) {
-			  context->_openSSLMgr->Unregister(fd);
-			  context->_wsManager->Unregister(fd);
-			}
-			std::cout << "Clear books" << std::endl;
-			std::cout << "Reconnect!!" << std::endl;
-			// BOOK_EVENT_CLEAR
-			// WS_EVENT_CONNECT
-			// event maps to fd.
-			// when we fire. write to fd using eventfd, then read from eventfd to fire?
-
-			// should just be one eventfd. which we write a uint64_t to which is the event.
-			// read the eventId then fire the callback from the map. should be simple loop.
-			// fire event to connect. to run through this code. initial connect should be event
-			// that way there is no special logic. just fire event back to pool.
-			return 0;
-		};
-
-
-		
-		std::function <void(uint64_t, uint64_t)> onText = [&console, wContextSP] (uint64_t offset, off64_t len) {
-			auto context = wContextSP.lock();
-
-			if (context) {
-				// std::cout << stream->Available() << std::endl;
-			  if (!(context->_coinCache->CheckSeq() % 10000)) {
-					std::stringstream ss;
-					ss << *(context->_coinCache);
-					console->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
-				}
-
-				char jsonDoc[1024*1024] = {};
-				if (len < sizeof(jsonDoc)) {
-					// sad copying but nice json library
-				  if(context->_gdaxStreamSP->Pop(jsonDoc, offset, len)) {
-						jsonDoc[len] = 0;
-						Document jd;
-
-			         uint64_t start = 0, end = 0;
-			         unsigned int junk= 0;
-						start = __rdtscp(&junk);
-    					jd.Parse(jsonDoc);
-						end = __rdtscp(&junk);
-						//printf("%zu\n", (end-start));
-					 
-
-						const char * type = jd["type"].GetString();
-						if (!strcmp(type, "snapshot")) {
-							const char *product = jd["product_id"].GetString();
-							context->_bookMap->insert(std::make_pair(product, std::make_shared<BookType>())); // create string
-							std::shared_ptr<BookType> book = (*context->_bookMap)[product];
-							assert(book);
-
-							const Value& bids = jd["bids"];
-							const Value& asks = jd["asks"];
-
-							for (SizeType i = 0; i < bids.Size(); ++i) {
-								const char * px = bids[i][0].GetString();
-								const char * qty = bids[i][0].GetString();
-								uint64_t ipx = atof(px) * 100000000;
-								uint64_t iqty = atof(qty) * 100000000;
-								int outindex = -1;
-								book->InsertBid(ipx, iqty, outindex);
-							}
-
-							for (SizeType i = 0; i < asks.Size(); ++i) {
-								const char * px = asks[i][0].GetString();
-								const char * qty = asks[i][0].GetString();
-								uint64_t ipx = atof(px) * 100000000;
-								uint64_t iqty = atof(qty) * 100000000;
-								int outindex = -1;
-								book->InsertAsk(ipx, iqty, outindex);
-							}
-						} else if (!strcmp(type, "l2update")) {
-							const char *product = jd["product_id"].GetString();
-							static std::string lookup;
-							lookup = product; // should call look.reserve(8);
-							if (context->_bookMap->find(lookup) == context->_bookMap->end()) {
-							  std::cerr << "Missing book " << lookup << std::endl;
-							  //							  return;
-							}
-							std::shared_ptr<BookType> book = (*context->_bookMap)[lookup];
-							assert(book);
-
-							const Value& changes = jd["changes"];
-							for (SizeType i = 0; i < changes.Size(); ++i) {
-								const char * side = changes[i][0].GetString();
-								const char * px = changes[i][1].GetString();
-								const char * qty = changes[i][2].GetString();
-
-								uint64_t ipx = atof(px) * 100000000;
-								uint64_t iqty = atof(qty) * 100000000;
-								int outindex = -1;
-
-								if(!strcmp(side, "buy")) {
-									if (iqty == 0) {
-										book->EraseBid(ipx, outindex);
-									} else {
-										if (!book->UpdateBid(ipx, iqty, outindex)) {
-											book->InsertBid(ipx, iqty, outindex);
-										}
-									}
-								} else {
-									if (iqty == 0) {
-										book->EraseAsk(ipx, outindex);
-									} else {
-										if (!book->UpdateAsk(ipx, iqty, outindex)) {
-											book->InsertAsk(ipx, iqty, outindex);
-										}
-									}
-								}
-
-								CoinLevel bid,ask;
-								book->BestBid(bid);
-								book->BestAsk(ask);
-								char pub[1024];
-								size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
-																bid.qty, bid.px, ask.px, ask.qty);
-								WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-								context->_publishStreamSP->Push(pub, len);
-								context->_wsAnonManager->SetWriteAll();
-
-									// std::cout << std::endl << std::endl;
-									// book->RDumpAsk(20, true);			
-									// std::cout << "---" << std::endl;
-									// book->RDumpBid(20);			
-							}
-						} else if (!strcmp(type, "error")) {
-							console->error("{0}", jsonDoc);
-						} else if (!strcmp(type, "ticker")) {
-							const char *product = jd["product_id"].GetString();
-							const char *vol24 = jd["volume_24h"].GetString();
-							
-							// "best_ask":"6423.6",
-							// "best_bid":"6423.59",
-							// x"high_24h":"6471.00000000",
-							// "last_size":"0.00147931",
-							// x"low_24h":"6384.04000000",
-							// "open_24h":"6388.00000000",
-							// "price":"6423.60000000",
-							// x"product_id":"BTC-USD",
-							// x"sequence":7230193662,
-							// "side":"buy",
-							// x"time":"2018-10-24T16:48:56.559000Z",
-							// "trade_id":52862394,
-							// "type":"ticker",
-							// x"volume_24h":"5365.44495907",
-							// "volume_30d":"195043.05076131"
-
-							// product_id, time, high_low,volume,open,price
-
-							CoinCache cc(context->_coinCache->NextSeq());
-							if (product) {
-								memcpy(cc._key, product, std::max(sizeof(cc._key)-1, ::strlen(product)));
-							}
-
-							const char *timeRaw =jd.HasMember("time") ? jd["time"].GetString(): nullptr;
-							if (timeRaw) {
-								std::string timeStr(timeRaw);
-
-								if (!timeStr.empty()) {
-									struct tm tm;
-									memset(&tm, 0, sizeof(struct tm));
-									strptime(timeStr.c_str(), "%Y-%m-%dT%H:%M:%S", &tm);
-
-									size_t i = timeStr.find('.');
-									if (i > 0) {
-										cc._milliseconds = atoi(timeStr.substr(i+1, 6).c_str());
-										cc._seconds  = mktime(&tm);
-									}
-								}
-							}
-							
-							const uint64_t tradeId = jd.HasMember("trade_id") ? jd["trade_id"].GetUint64() : UINT64_MAX;
-							const char *h24 = jd.HasMember("high_24h") ? jd["high_24h"].GetString() : nullptr;
-							const char *l24 = jd.HasMember("low_24h") ? jd["low_24h"].GetString() : nullptr;
-							const char *v24 = jd.HasMember("volume_24h") ? jd["volume_24h"].GetString() : nullptr;
-							const char *px = jd.HasMember("price") ? jd["price"].GetString() : nullptr;
-							const char *lastSize = jd.HasMember("last_size") ? jd["last_size"].GetString() : nullptr;
-
-							if (h24) {
-								cc._high24 = atof(h24);
-							}
-
-							if (l24) {
-								cc._low24 = atof(l24);
-							}
-
-							if (v24) {
-							  cc._vol24 = atof(v24);
-							}
-
-							if (px) {
-							  cc._last = atof(px);
-							}
-
-							if (jd.HasMember("sequence")) {
-								cc._origseqno = jd["sequence"].GetUint64();
-							}
-
-							coypu::msg::CoinCache gCC;
-							gCC.set_high24(cc._high24);
-							gCC.set_low24(cc._low24);
-							gCC.set_vol24(cc._vol24);
-							gCC.set_last(cc._last);
-							std::string outStr;
-							if (gCC.SerializeToString(&outStr)) {
-							  
-							} else {
-							  assert(false);
-							}
-							
-							
-							// write protobuf to a websocket publish stream. doesnt need to be sequenced
-							// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
-							
-							start = __rdtscp(&junk);
-							context->_coinCache->Push(cc);
-							end = __rdtscp(&junk);
-							//printf("%zu\n", (end-start));
-
-							if (tradeId != UINT64_MAX) {
-							  char pub[1024];
-							  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
-							  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-							  context->_publishStreamSP->Push(pub, len);
-							  context->_wsAnonManager->SetWriteAll();
-							}
-						} else if (!strcmp(type, "subscriptions")) {
-							// skip
-						} else if (!strcmp(type, "heartbeat")) {
-							// skip
-						} else {
-
-						  console->warn("{0} {1}", type, jsonDoc); // spdlog does not do streams
-						}
-					} else {
-						assert(false);
-					}
-				}
-			}
-		};
-		
-		// stream is associated with the fd. socket can only support one websocket connection at a time.
-		contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
-		contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
-
-		// Sets the end-point 
-		contextSP->_wsManager->Stream(wsFD, "/", "ws-feed.pro.coinbase.com", "http://ws-feed.pro.coinbase.com"); 
-	}
+	if (doCB) StreamGDAX(config, contextSP, "ws-feed.pro.coinbase.com", 443);
 	
-	// Test client
 	config->GetValue("do-server-test", doCB);
 	if (doCB) DoServerTest(contextSP);
 	
