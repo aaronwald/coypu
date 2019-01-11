@@ -18,9 +18,3 @@ CoypuApplication::CoypuApplication () {
 
 CoypuApplication::~CoypuApplication () {
 }
-
-void CoypuApplication::foo () {
-  // foo
-  // typedef EventManager <std::shared_ptr<SPDLogger>> event_mgr_type;
-
-}

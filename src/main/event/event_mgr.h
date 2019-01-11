@@ -1,6 +1,7 @@
 #ifndef __COYPU_EVENTMGR_H
 #define __COYPU_EVENTMGR_H
 
+#include <iostream>
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
@@ -52,7 +53,10 @@ namespace  coypu
                 }
 
                 int Register (int fd, callback_type read_func, callback_type write_func, callback_type close_func) {
-                    if (fd <=0) return -1;
+						if (fd <=0) {
+						  assert(false);
+						  return -1;
+						}
                     struct epoll_event event;
                     event.events = EPOLLIN | EPOLLRDHUP | EPOLLPRI;// always | EPOLLERR | EPOLLHUP;
 
@@ -146,7 +150,12 @@ namespace  coypu
 
                         _closeList.clear();
                     } else if (count < 0) {
-                        _logger->perror(errno, "epoll_wait");
+							 if (errno == EINTR) {
+								_logger->perror(errno, "epoll_wait");
+								return 0;
+							 } else {
+								_logger->perror(errno, "epoll_wait");
+							 }
                     }
                     return count;
                 }
@@ -180,7 +189,9 @@ namespace  coypu
 			 class EventCBManager {
 		  public:
 			 typedef std::function<int(int)> write_cb_type;
-			 
+			 typedef std::deque<uint64_t> queue_type;
+
+			 // fd should be eventfd()
 		  EventCBManager(int fd, write_cb_type set_write) : _fd(fd), _set_write(set_write) {
 			 }
 
@@ -206,26 +217,33 @@ namespace  coypu
 				if (r > 0) {
 				  assert(r == sizeof(uint64_t));
 				  if (r < sizeof(uint64_t)) return -128;
-				  auto b = _cbMap.find(u);
-				  if (b != _cbMap.end()) {
-					 (*b).second();
+
+				  while (!_queue.empty()) {
+					 u = _queue.front(); // not thread safe
+					 _queue.pop_front();
+					 auto b = _cbMap.find(u);
+					 if (b != _cbMap.end()) {
+						(*b).second();
+					 } else {
+						assert(false);
+					 }
 				  }
 				  return 0;
 				}
 				return r;
 			 }
 
-			 // only writes one at a time.
 			 int Write (int fd) {
 				// write queue
-				uint64_t u = _queue.front();
+				uint64_t u = _queue.size();
 				int r = ::write(_fd, &u, sizeof(uint64_t));
+								
 				if (r > 0) {
 				  assert(r == sizeof(uint64_t));
 				  if (r < sizeof(uint64_t)) return -128;
-				  _queue.pop_front();
-				  return _queue.empty() ? 0 : 1;
+				  return 0;
 				}
+				assert(false);
 				
 				return -1;
 			 }
@@ -246,7 +264,6 @@ namespace  coypu
 			 EventCBManager (const EventCBManager &&other) = delete;
 			 EventCBManager &operator= (const EventCBManager &&other) = delete;
 
-			 typedef std::deque<uint64_t> queue_type;
 			 queue_type _queue;
 			 
 			 typedef std::unordered_map <uint64_t, CBType> cb_map_type;

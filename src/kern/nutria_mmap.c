@@ -4,7 +4,7 @@
 #include <uapi/linux/bpf.h>
 #include "bpf_helpers.h"
 
-SEC("kprobe/ksys_read")
+SEC("kprobe/sys_read")
 
 // do
 int bpf_prog1(struct pt_regs *ctx)
@@ -15,7 +15,7 @@ int bpf_prog1(struct pt_regs *ctx)
   pid = bpf_get_current_pid_tgid();
   bpf_probe_read(&size, sizeof(size), (void *)&PT_REGS_PARM3(ctx));
   
-    if (pid == 11681 || pid == 11682)
+  if (pid ==3219 || pid==3220)
       bpf_trace_printk(fmt, sizeof(fmt), size, pid);
   
   return 0;

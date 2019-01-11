@@ -1,8 +1,16 @@
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.9)
 project(coypu)
 include (CTest)
 include (GoogleTest)
 include (ExternalProject)
+
+# Enable LTO on Release builds
+include(CheckIPOSupported)
+
+check_ipo_supported(RESULT ipo_supported)
+if(ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
 
@@ -14,7 +22,7 @@ get_git_head_revision(GIT_REFSPEC GIT_SHA1)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(coypu_VERSION_MAJOR 0)
-set(coypu_VERSION_MINOR 2)
+set(coypu_VERSION_MINOR 3)
 
 set(CMAKE_CXX_COMPILER "clang++")
 set(CMAKE_C_COMPILER "clang") 

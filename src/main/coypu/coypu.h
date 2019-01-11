@@ -9,8 +9,6 @@ namespace coypu {
   public:
     static CoypuApplication & instance ();
 
-    void foo ();
-
   private:
     CoypuApplication ();
     virtual ~CoypuApplication ();

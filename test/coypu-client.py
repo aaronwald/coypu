@@ -100,15 +100,18 @@ class Display:
                 f = "{:12.4f}".format(ask_qty)
                 self.stdscr.addstr(y, 60, f)
 
+                f = "({:12.6f})".format(ask_px-bid_px)
+                self.stdscr.addstr(y, 80, f)
+                
                 f = "{:14.8f}".format(last)
                 if last == prev:
-                    self.stdscr.addstr(y, 80, f, self.products[product]['last_color'])
+                    self.stdscr.addstr(y, 100, f, self.products[product]['last_color'])
                 elif last < prev:
-                    self.stdscr.addstr(y, 80, f, curses.color_pair(1))
+                    self.stdscr.addstr(y, 100, f, curses.color_pair(1))
                     self.products[product]['prev'] = last
                     self.products[product]['last_color'] = curses.color_pair(1)
                 else:
-                    self.stdscr.addstr(y, 80, f, curses.color_pair(2))
+                    self.stdscr.addstr(y, 100, f, curses.color_pair(2))
                     self.products[product]['prev'] = last
                     self.products[product]['last_color'] = curses.color_pair(2)
                                                 

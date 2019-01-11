@@ -1,21 +1,12 @@
 
 # Coypu Websocket LV C++ Cache
 
+## GDAX API
+
+Connection and stream to ws-feed.pro.coinbase.com [Coinbase Pro Market Data API](https://docs.pro.coinbase.com/).
+
 
 ```
 git clone https://github.com/Tencent/rapidjson.git
 ```
 
-Enable docker forwarding on host
-```
-sudo sysctl net.ipv4.conf.all.forwarding=1
-sudo iptables -P FORWARD ACCEPT
-```
-
-```
-docker system prune -a
-docker build -t coypu .
-docker run --dns 8.8.8.8 --rm -t coypu 
-docker run --dns 8.8.8.8 --rm -i -t coypu /bin/bash
-```
-cmake --help-module FindProtobuf

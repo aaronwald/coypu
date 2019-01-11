@@ -63,6 +63,11 @@ using namespace coypu::admin;
 
 extern "C" void processRust(uint32_t);
 
+enum CoypuEvents {
+  CE_BOOK_CLEAR,
+  CE_WS_CONNECT
+};
+
 struct CoinLevel
 {
   uint64_t px;
@@ -115,30 +120,25 @@ struct CoinCache {
 	}
 } __attribute__ ((packed, aligned(64)));
 
-// Coypu Types
+// BEGIN Coypu Types
 typedef std::shared_ptr<SPDLogger> LogType;
 typedef coypu::event::EventManager<LogType> EventManagerType;
-
 typedef coypu::store::LogRWStream<MMapShared, coypu::store::LRUCache, 128> RWBufType;
 typedef coypu::store::PositionedStream <RWBufType> StreamType;
-
 typedef coypu::store::LogRWStream<MMapAnon, coypu::store::OneShotCache, 128> AnonRWBufType;
 typedef coypu::store::PositionedStream <AnonRWBufType> AnonStreamType;
-
 typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
-
 typedef coypu::http::websocket::WebSocketManager <LogType, AnonStreamType, PublishStreamType> AnonWebSocketManagerType;
-
 typedef LogWriteBuf<MMapShared> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 typedef AdminManager<LogType> AdminManagerType;
 typedef OpenSSLManager <LogType> SSLType;
-
-typedef std::function<void(void)> cb_type;
+typedef std::function<void(void)> CBType;
 typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
+// END Coypu Types
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
@@ -155,6 +155,8 @@ typedef struct CoypuContextS {
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
 	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/"); 
   }
+  CoypuContextS(const CoypuContextS &other) = delete;
+  CoypuContextS &operator=(const CoypuContextS &other) = delete;
 
   LogType _consoleLogger;
   
@@ -171,10 +173,11 @@ typedef struct CoypuContextS {
   std::shared_ptr <PublishStreamType> _cacheStreamSP;
   std::shared_ptr <CacheType> _coinCache;
   std::shared_ptr <StreamType> _gdaxStreamSP;
+  std::shared_ptr <EventCBManager<CBType>> _cbManager;
 } CoypuContext;
 
 void bar (std::shared_ptr<CoypuContext> context, bool &done) {
-	CPUManager::SetName("epoll");
+	CPUManager::SetName("coypu_epoll");
 
 	while (!done) {
 		if(context->_eventMgr->Wait() < 0) {
@@ -183,9 +186,19 @@ void bar (std::shared_ptr<CoypuContext> context, bool &done) {
 	}
 }
 
-void EventClearBooks (std::shared_ptr<BookMapType> &bookMap) {
-  for (auto &b : *bookMap) {
-	 b.second->Clear();
+void EventClearBooks (std::weak_ptr<CoypuContext> wContext) {
+  auto consoleLogger = spdlog::get("console");
+  assert(consoleLogger);
+
+  std::shared_ptr<CoypuContext> context = wContext.lock();
+  if (context) {
+	 for (auto &b : *context->_bookMap) {
+		if (consoleLogger) {
+		  consoleLogger->info("Clear {0}", b.first);
+		}
+
+		b.second->Clear();
+	 }
   }
 }
 
@@ -323,10 +336,20 @@ std::shared_ptr<EventCBManager<T>> CreateCBManager (std::shared_ptr<CoypuContext
   if (fd < 0) return nullptr;
 
   std::shared_ptr <event_type> sp = std::make_shared<event_type>(fd, contextSP->_set_write_ws);
+
+  std::weak_ptr<CoypuContext> wContext = contextSP;
+  std::function<void(void)> cb = [wContext] () -> void { EventClearBooks(wContext); }; 
+  sp->Register(CE_BOOK_CLEAR, cb);
+
+  
   std::function<int(int)> readCB = std::bind(&event_type::Read, sp, std::placeholders::_1);
   std::function<int(int)> writeCB = std::bind(&event_type::Write, sp, std::placeholders::_1);
   std::function<int(int)> closeCB = std::bind(&event_type::Close, sp, std::placeholders::_1);
-  if (contextSP->_eventMgr->Register(fd, readCB, writeCB, closeCB) < 0) return nullptr;
+  if (contextSP->_eventMgr->Register(fd, readCB, writeCB, closeCB) != 0) {
+	 std::cerr << "Failed to register queue" << std::endl;
+	 assert(false);
+	 return nullptr;
+  }
   
   return sp;
 }
@@ -346,10 +369,8 @@ void DoServerTest (std::shared_ptr<CoypuContext> contextSP)
   contextSP->_wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
 }
 
-void SetupAdmin (LogType &consoleLogger, std::string &interface, std::weak_ptr<CoypuContext> wContextSP) {
-  int adminFD = BindAndListen(consoleLogger, interface, 9999);
-  assert(adminFD > 0);
-  
+void SetupAdmin (std::string &interface, std::shared_ptr<CoypuContext> context) {
+  std::weak_ptr <CoypuContext> wContextSP = context;
   coypu::event::callback_type adminAcceptCB = [wContextSP] (int fd) {
 	 struct sockaddr_in client_addr= {0};
 	 socklen_t addrlen= sizeof(sockaddr_in);
@@ -379,8 +400,15 @@ void SetupAdmin (LogType &consoleLogger, std::string &interface, std::weak_ptr<C
   };
 
   auto contextSP = wContextSP.lock();
-  if (contextSP && contextSP->_eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
-	 consoleLogger->perror(errno, "Register");
+  if (contextSP) {
+	 int adminFD = BindAndListen(contextSP->_consoleLogger, interface, 9999);
+	 if (adminFD > 0) {
+		if (contextSP->_eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
+		  contextSP->_consoleLogger->perror(errno, "Register");
+		}
+	 } else {
+		contextSP->_consoleLogger->error("Failed to created admin fd");
+	 }
   }
 }
 
@@ -411,7 +439,6 @@ void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCon
 	contextSP->_consoleLogger->info("Cache check seqnum[{0}]", contextSP->_coinCache->CheckSeq());
 
 	std::string storeFile("gdax.store");
-	std::shared_ptr<StreamType> streamSP = nullptr; 
 
 	bool b = false;
 	FileUtil::Exists(storeFile.c_str(), b);
@@ -550,12 +577,14 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
   }
 }
 
-void StreamGDAX (std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port) {
+void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
+					  const std::vector<std::string> &symbolList,
+					  const std::vector<std::string> &channelList) {
   int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
   std::weak_ptr <CoypuContext> wContextSP = contextSP;
 
   if (wsFD < 0) {
-	 contextSP->_consoleLogger->error("failed to connect to ws-feed.");
+	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
 	 exit(1);
   }
   int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
@@ -570,11 +599,7 @@ void StreamGDAX (std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCont
   std::function <int(int,const struct iovec *,int)> sslWriteCB =
 	 std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
 
-  std::vector <std::string> symbolList;
-  std::vector <std::string> channelList;
-  config->GetSeqValues("gdax-symbols", symbolList);
-  config->GetSeqValues("gdax-channels", channelList);
-
+  
   std::function <void(int)> onOpen = [wContextSP, symbolList, channelList] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
@@ -590,23 +615,16 @@ void StreamGDAX (std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCont
 	 }
   };
 
-  std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+    std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
+		context->_cbManager->Queue(CE_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_WS_CONNECT);
 	 }
-	 std::cout << "Clear books" << std::endl;
-	 std::cout << "Reconnect!!" << std::endl;
-	 // BOOK_EVENT_CLEAR
-	 // WS_EVENT_CONNECT
-	 // event maps to fd.
-	 // when we fire. write to fd using eventfd, then read from eventfd to fire?
 
-	 // should just be one eventfd. which we write a uint64_t to which is the event.
-	 // read the eventId then fire the callback from the map. should be simple loop.
-	 // fire event to connect. to run through this code. initial connect should be event
-	 // that way there is no special logic. just fire event back to pool.
+
 	 return 0;
   };
 
@@ -840,8 +858,10 @@ void StreamGDAX (std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCont
   contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
   contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 
-  // Sets the end-point 
-  contextSP->_wsManager->Stream(wsFD, "/", hostname, "http://ws-feed.pro.coinbase.com"); 
+  // Sets the end-point
+  char uri[1024];
+  snprintf(uri, 1024, "http://%s", hostname.c_str());
+  contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
 }
 
 int main(int argc, char **argv)
@@ -850,8 +870,7 @@ int main(int argc, char **argv)
 
 	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
 
-	if (argc != 2)
-	{
+	if (argc != 2) {
 		fprintf(stderr, "Usage: %s <yaml_config>\n", argv[0]);
 		exit(1);
 	}
@@ -866,7 +885,7 @@ int main(int argc, char **argv)
 	SSLType::Init();
 	int rc = RAND_load_file("/dev/urandom", 32); // /dev/random can be slow
 	if(rc != 32) {
-	  fprintf(stderr, "RAND_load_file fail.\n"); // ERR_*
+	  fprintf(stderr, "RAND_load_file fail.\n"); 
 	  exit(1);
 	}
 	
@@ -883,6 +902,7 @@ int main(int argc, char **argv)
 	auto error_logger = spdlog::stderr_color_mt("stderr");
 	spdlog::set_level(spdlog::level::info); // Set global log level to info
 	console->info("Coypu [{1}] Git Revision [{0}]", _GIT_REV, COYPU_VERSION);
+	
 	// config
 	std::shared_ptr<CoypuConfig> config = CoypuConfig::Parse(argv[1]);
 	if (!config) {
@@ -953,17 +973,21 @@ int main(int argc, char **argv)
 	
 	// app
 	CoypuApplication &c = CoypuApplication::instance();
-	c.foo();
-
+	(void)c;
+	
 	auto consoleLogger = std::make_shared<coypu::SPDLogger>(console);
 
 	auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
-	std::weak_ptr <CoypuContext> wContextSP = contextSP;
-	contextSP->_eventMgr->Init();
-	
-	auto cbMgr = CreateCBManager<cb_type, EventManagerType>(contextSP);
-	assert(cbMgr);
+	contextSP->_eventMgr->Init(); // needs to happens before cb manager so we can register the queue.
 
+	contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
+
+
+	CreateStores(config, contextSP);
+
+	// Init event manager
+
+	// BEGIN Signal
 	sigset_t mask;
 	::sigemptyset(&mask);
 	::sigaddset(&mask, SIGINT);
@@ -976,7 +1000,6 @@ int main(int argc, char **argv)
 
 	bool done = false;
 	coypu::event::callback_type readCB = [&done](int fd) {
-		printf("Read signal.\n");
 		struct signalfd_siginfo signal;
 		int count = ::read(fd, &signal, sizeof(signal));  
 		if (count == -1) {
@@ -987,17 +1010,18 @@ int main(int argc, char **argv)
 	};
 
 	if (contextSP->_eventMgr->Register(signalFD, readCB, nullptr, nullptr)) {
-		consoleLogger->perror(errno, "Register");
+	  consoleLogger->perror(errno, "Register");
 	}
+	// END Signal
 
-	CreateStores(config, contextSP);
-	
 	// BEGIN Create websocket service
 	std::string interface;
 	config->GetValue("interface", interface);
 	assert(!interface.empty());
 	int sockFD = BindAndListen(consoleLogger, interface, 8080);
 	if (sockFD > 0) {
+	  std::weak_ptr <CoypuContext> wContextSP = contextSP;
+
 	  coypu::event::callback_type acceptCB = [wContextSP, logger=consoleLogger](int fd) {
 		 auto context = wContextSP.lock();
 		 if (context) {
@@ -1012,17 +1036,40 @@ int main(int argc, char **argv)
 	} else {
 	  consoleLogger->error("Failed to create websocket fd");
 	}
-	// END
-
+	// END Websocket service
 
 	bool doCB = false;
 	config->GetValue("do-gdax", doCB);
-	if (doCB) StreamGDAX(config, contextSP, "ws-feed.pro.coinbase.com", 443);
+	if (doCB) {
+	  std::weak_ptr<CoypuContext> wContext = contextSP;
+	  std::vector <std::string> symbolList;
+	  std::vector <std::string> channelList;
+	  config->GetSeqValues("gdax-symbols", symbolList);
+	  config->GetSeqValues("gdax-channels", channelList);
+  
+	  std::function<void(void)> cb = [wContext, symbolList, channelList] () -> void {
+		 auto contextSP = wContext.lock();
+		 if (contextSP) {
+			std::string hostname = "ws-feed.pro.coinbase.com";
+			uint32_t port = 443;
+			auto consoleLogger = spdlog::get("console");
+			assert(consoleLogger);
+			if (consoleLogger) {
+			  consoleLogger->info("Reconnect {0}:{1}", hostname, port);
+			}
+			StreamGDAX(contextSP, hostname, port, symbolList, channelList);
+		 }
+	  };
+	  contextSP->_cbManager->Register(CE_WS_CONNECT, cb);
+
+	  /// fire to start
+	  contextSP->_cbManager->Queue(CE_WS_CONNECT);
+	}
 	
 	config->GetValue("do-server-test", doCB);
 	if (doCB) DoServerTest(contextSP);
 	
-	SetupAdmin(consoleLogger, interface, wContextSP);
+	SetupAdmin(interface, contextSP);
 
 	// watch out for threading on loggers
 	std::thread t1(bar, contextSP, std::ref(done));
