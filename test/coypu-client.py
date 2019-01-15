@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+import argparse
 import asyncio
 import curses
 from websockets import connect
@@ -10,8 +12,8 @@ logger.setLevel(logging.INFO)
 logger.addHandler(logging.FileHandler("client.log"))
 
 
-async def coypu(display):
-    async with connect("ws://localhost:8080/websocket", ping_interval=600, ping_timeout=10) as cws:
+async def coypu(display, host, port):
+    async with connect("ws://%s:%d/websocket" % (host, port), ping_interval=600, ping_timeout=10) as cws:
         await cws.send(json.dumps({"cmd": "mark"}))
         while True:
             msg = await cws.recv()
@@ -60,7 +62,11 @@ class Display:
         
     def render (self, doc):
         self.seq_no = self.seq_no + 1
-        self.stdscr.addstr(self.height-1,0, "{:d}".format(self.seq_no))
+        try:
+            self.stdscr.addstr(self.height-1,0, "{:d}".format(self.seq_no))
+        except Exception as e:
+            pass
+        
 
         l = doc.split(' ')
         if l[0] == "Trade":
@@ -100,7 +106,7 @@ class Display:
                 f = "{:12.4f}".format(ask_qty)
                 self.stdscr.addstr(y, 60, f)
 
-                f = "({:12.6f})".format(ask_px-bid_px)
+                f = "({:14.8f})".format(ask_px-bid_px)
                 self.stdscr.addstr(y, 80, f)
                 
                 f = "{:14.8f}".format(last)
@@ -126,22 +132,37 @@ class Display:
     async def get_ch(self):
         while True:
             char = await self.loop.run_in_executor(None, self.stdscr.getch)
-            if char == ord('q'):
-                loop.stop()
-            elif char == curses.KEY_RESIZE:
-                oldheight = height-1
-                self.height,self.width = stdscr.getmaxyx()
-                if oldheight < self.height:
-                    self.stdscr.addstr(oldheight,0,"")
-                    self.stdscr.clrtoeol()
+            try:
+                if char == ord('q'):
+                    loop.stop()
+                elif char == curses.KEY_RESIZE:
+                    oldheight = self.height-1
+                    self.height,self.width = self.stdscr.getmaxyx()
+
+                    self.stdscr.addstr(oldheight,0,"                      ")
+                    self.stdscr.clear()
+                    self.stdscr.refresh()
+            except Exception as e:
+                print(e)
 
                     
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--verbose", help="increase output verbosity", action="store_true")
+    parser.add_argument("-p", "--port", help="coypu webservice port", default=8080, type=int)
+    parser.add_argument("-w", "--host", help="coypu host", default='localhost', type=str)
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
+    else:
+        logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO)
+        
     loop = asyncio.get_event_loop()
 
     with Display(loop) as display:
         task1 = loop.create_task(display.get_ch())
-        task2 = loop.create_task(coypu(display))
+        task2 = loop.create_task(coypu(display, args.host, args.port))
         loop.run_forever()
 
         # cleans up display for some reason

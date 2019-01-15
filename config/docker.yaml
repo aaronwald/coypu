@@ -9,19 +9,36 @@ interface: eth0
 coypu:
   websocket:
     logger: ws-logger
-    cpu: 8
+    cpu: 1
 
 do-gdax: true
 
-gdax-symbols: 
-  - BTC-USD
-  - BTC-EUR
-  - ETH-USD
-  - ETH-EUR
+gdax-symbols:
+  - MANA-USDC
   - ETH-BTC
-  - ZRX-USD
-  - EOS-USD
+  - ETH-USD
+  - LTC-BTC
+  - LTC-USD
+  - ETH-EUR
+  - LTC-EUR
   - BCH-USD
+  - BCH-BTC
+  - BCH-EUR
+  - BTC-USD
+  - BTC-GBP
+  - BTC-EUR
+  - ETC-USD
+  - ETC-EUR
+  - ETC-BTC
+  - ZRX-BTC
+  - BTC-USDC
+  - ETH-USDC
+  - BAT-USDC
+  - ZRX-EUR
+  - ZRX-USD
+  - CVC-USDC
+  - DNT-USDC
+  - LOOM-USDC
 
 gdax-channels:
   - ticker
