@@ -2,7 +2,7 @@ pipeline {
     agent {
 		  docker {
 				registryUrl 'https://gcr.io/massive-acrobat-227416/'
-				registryCredentialsId 'gcr:creds'
+				registryCredentialsId 'gcr:coypu'
 				image 'coypu_llvm:latest'
 		  }
 	 }
