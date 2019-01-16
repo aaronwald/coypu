@@ -6,14 +6,6 @@ pipeline {
 				yamlFile 'pod.yaml'
 		  }
 	 }
-	 """
-    agent {
-		  docker {
-				registryUrl 'https://gcr.io/massive-acrobat-227416/'
-				registryCredentialsId 'gcr:coypu'
-				image 'coypu_llvm:latest'
-		  }
-	 }"""
 	 stages {
 		  container('coypu_llvm') {
 				stage('Checkout') {
