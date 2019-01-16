@@ -7,24 +7,16 @@ pipeline {
 		  }
 	 }
 	 stages {
-		  container('coypu_llvm') {
-				stage('Checkout') {
+		  stage('Checkout') {
+				container('coypu_llvm') {
 					 steps {	 
 						  checkout scm
 						  sh 'mkdir -p build'
-					 }
-				}
-				stage('Compile') {
-					 steps {
 						  sh '''
                 	cd build &&
                 	cmake -D CMAKE_BUILD_TYPE=Debug -D BUILD_TESTING=ON .. &&
                 	make
                 '''
-					 }
-				}
-				stage('Test') {
-					 steps {
 						  sh '''
                 	cd build &&
                 	make test
