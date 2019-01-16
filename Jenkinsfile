@@ -10,17 +10,18 @@ pipeline {
 		  stage('Checkout') {
 				steps {
 					 container('coypullvm') {
-						  checkout scm
+						  sh 'curl https://sh.rustup.rs -sSf | sh -s -- -y'
 						  sh 'mkdir -p build'
 						  sh '''
+                  source $HOME/.cargo/env &&
                 	export LD_LIBRARY_PATH=/usr/local/lib/ &&
+                  mkdir libs &&
+                  cd libs &&
+                  git clone https://github.com/Tencent/rapidjson.git &&
+                  cd .. &&
                   cd build &&
                 	cmake -D CMAKE_BUILD_TYPE=Debug -D BUILD_TESTING=ON .. &&
-                	make
-                '''
-						  sh '''
-                	export LD_LIBRARY_PATH=/usr/local/lib/ &&
-                 	cd build &&
+                  make && 
                 	make test
                 '''
 					 }
