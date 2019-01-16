@@ -25,5 +25,12 @@ pipeline {
 					 }
 				}
 		  }
+		  stage ('test') {
+				steps {
+					 container('coypullvm') {
+						  junit 'build/testresults.xml'
+					 }
+				}
+		  }
 	 }
 }
