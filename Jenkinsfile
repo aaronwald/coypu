@@ -1,7 +1,9 @@
 pipeline {
     agent {
 		  docker {
-				image 'gcr.io/massive-acrobat-227416/coypu_llvm'
+				registryUrl 'https://gcr.io/massive-acrobat-227416/'
+				registryCredentialsId 'gcr:creds'
+				image 'coypu_llvm:latest'
 		  }
 	 }
 	 stages {
