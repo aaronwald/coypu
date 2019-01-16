@@ -13,12 +13,14 @@ pipeline {
 						  checkout scm
 						  sh 'mkdir -p build'
 						  sh '''
-                	cd build &&
+                	export LD_LIBRARY_PATH=/usr/local/lib/ &&
+                  cd build &&
                 	cmake -D CMAKE_BUILD_TYPE=Debug -D BUILD_TESTING=ON .. &&
                 	make
                 '''
 						  sh '''
-                	cd build &&
+                	export LD_LIBRARY_PATH=/usr/local/lib/ &&
+                 	cd build &&
                 	make test
                 '''
 					 }
