@@ -22,7 +22,8 @@ pipeline {
                   cd build &&
                 	cmake -D CMAKE_BUILD_TYPE=Debug -D BUILD_TESTING=ON .. &&
                   make && 
-                	make test
+                	make coyputest &&
+                  ./coyputest --gtest_output="xml:testresults.xml"
                 '''
 					 }
 				}
