@@ -5,7 +5,7 @@ metadata:
     some-label: some-label-value
 spec:
   containers:
-  - name: coypu_llvm
+  - name: coypullvm
     image: gcr.io/massive-acrobat-227416/coypu_llvm:latest
     command:
     - cat

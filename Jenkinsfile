@@ -9,7 +9,7 @@ pipeline {
 	 stages {
 		  stage('Checkout') {
 				steps {
-					 container('coypu_llvm') {
+					 container('coypullvm') {
 						  checkout scm
 						  sh 'mkdir -p build'
 						  sh '''
