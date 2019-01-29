@@ -64,8 +64,9 @@ using namespace coypu::admin;
 extern "C" void processRust(uint32_t);
 
 enum CoypuEvents {
-  CE_BOOK_CLEAR,
-  CE_WS_CONNECT
+  CE_GDAX_BOOK_CLEAR,
+  CE_WS_CONNECT_GDAX,
+  CE_WS_CONNECT_KRAKEN
 };
 
 struct CoinLevel
@@ -173,6 +174,7 @@ typedef struct CoypuContextS {
   std::shared_ptr <PublishStreamType> _cacheStreamSP;
   std::shared_ptr <CacheType> _coinCache;
   std::shared_ptr <StreamType> _gdaxStreamSP;
+  std::shared_ptr <StreamType> _krakenStreamSP;
   std::shared_ptr <EventCBManager<CBType>> _cbManager;
 } CoypuContext;
 
@@ -339,8 +341,7 @@ std::shared_ptr<EventCBManager<T>> CreateCBManager (std::shared_ptr<CoypuContext
 
   std::weak_ptr<CoypuContext> wContext = contextSP;
   std::function<void(void)> cb = [wContext] () -> void { EventClearBooks(wContext); }; 
-  sp->Register(CE_BOOK_CLEAR, cb);
-
+  sp->Register(CE_GDAX_BOOK_CLEAR, cb);
   
   std::function<int(int)> readCB = std::bind(&event_type::Read, sp, std::placeholders::_1);
   std::function<int(int)> writeCB = std::bind(&event_type::Write, sp, std::placeholders::_1);
@@ -438,12 +439,12 @@ void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCon
 	contextSP->_consoleLogger->info("Restore {0}", ss.str());
 	contextSP->_consoleLogger->info("Cache check seqnum[{0}]", contextSP->_coinCache->CheckSeq());
 
-	std::string storeFile("gdax.store");
+	std::string gdaxStoreFile("gdax.store");
 
 	bool b = false;
-	FileUtil::Exists(storeFile.c_str(), b);
+	FileUtil::Exists(gdaxStoreFile.c_str(), b);
 	// open in direct mode
-	int fd = FileUtil::Open(storeFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+	int fd = FileUtil::Open(gdaxStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
 	if (fd >= 0) {
 	  size_t pageSize = 64 * MemManager::GetPageSize();
 	  off64_t curSize = 0;
@@ -455,6 +456,24 @@ void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuCon
 	} else {
 	  contextSP->_consoleLogger->perror(errno, "Open");
 	}
+
+	std::string krakenStoreFile("kraken.store");
+	b = false;
+	FileUtil::Exists(krakenStoreFile.c_str(), b);
+	// open in direct mode
+	fd = FileUtil::Open(krakenStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+	if (fd >= 0) {
+	  size_t pageSize = 64 * MemManager::GetPageSize();
+	  off64_t curSize = 0;
+	  FileUtil::GetSize(fd, curSize);
+	  contextSP->_consoleLogger->info("Current size [{0}]", curSize);
+	  
+	  std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
+	  contextSP->_krakenStreamSP = std::make_shared<StreamType>(bufSP);
+	} else {
+	  contextSP->_consoleLogger->perror(errno, "Open");
+	}
+
 }
 
 void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogType &logger, int fd) {
@@ -620,8 +639,8 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
-		context->_cbManager->Queue(CE_BOOK_CLEAR);
-		context->_cbManager->Queue(CE_WS_CONNECT);
+		context->_cbManager->Queue(CE_GDAX_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_WS_CONNECT_GDAX);
 	 }
 
 
@@ -632,13 +651,6 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 	 auto context = wContextSP.lock();
 
 	 if (context) {
-		// std::cout << stream->Available() << std::endl;
-		if (!(context->_coinCache->CheckSeq() % 10000)) {
-		  std::stringstream ss;
-		  ss << *(context->_coinCache);
-		  context->_consoleLogger->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
-		}
-
 		char jsonDoc[1024*1024] = {};
 		if (len < sizeof(jsonDoc)) {
 		  // sad copying but nice json library
@@ -760,6 +772,14 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				// product_id, time, high_low,volume,open,price
 
 				CoinCache cc(context->_coinCache->NextSeq());
+
+				if (!(context->_coinCache->CheckSeq() % 10000)) {
+				  std::stringstream ss;
+				  ss << *(context->_coinCache);
+				  context->_consoleLogger->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
+				}
+
+
 				if (product) {
 				  memcpy(cc._key, product, std::max(sizeof(cc._key)-1, ::strlen(product)));
 				}
@@ -820,7 +840,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  assert(false);
 				}
 							
-							
+				// gRPC?			
 				// write protobuf to a websocket publish stream. doesnt need to be sequenced
 				// // WebSocketManagerType::WriteFrame(cache, coypu::http::websocket::WS_OP_BINARY_FRAME, false, sizeof(CoinCache));
 							
@@ -845,6 +865,91 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 			 }
 		  } else {
 			 assert(false);
+		  }
+		}
+	 }
+  };
+		
+  // stream is associated with the fd. socket can only support one websocket connection at a time.
+  std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
+  std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
+		
+  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
+  contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+
+  // Sets the end-point
+  char uri[1024];
+  snprintf(uri, 1024, "http://%s", hostname.c_str());
+  contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
+}
+
+void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
+						 const std::vector<std::string> &symbolList) {
+  int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  std::weak_ptr <CoypuContext> wContextSP = contextSP;
+
+  if (wsFD < 0) {
+	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
+	 exit(1);
+  }
+  int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
+  assert(r == 0);
+  r= TCPHelper::SetNoDelay(wsFD);
+  assert(r == 0);
+
+  contextSP->_openSSLMgr->Register(wsFD);
+
+  std::function <int(int,const struct iovec*,int)> sslReadCB =
+	 std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+  std::function <int(int,const struct iovec *,int)> sslWriteCB =
+	 std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
+
+  
+  std::function <void(int)> onOpen = [wContextSP, symbolList] (int fd) {
+	 auto context = wContextSP.lock();
+	 if (context) {
+		std::string subStr;
+		bool queue;
+
+		for (std::string pair : symbolList) {
+		  subStr= "{\"event\": \"subscribe\", \"pair\": [\"" + pair + "\"], \"subscription\": { \"name\" : \"*\"}}";
+		  queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+		}
+	 }
+  };
+
+    std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+	 auto context = wContextSP.lock();
+	 if (context) {
+		context->_openSSLMgr->Unregister(fd);
+		context->_wsManager->Unregister(fd);
+		context->_cbManager->Queue(CE_GDAX_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_WS_CONNECT_GDAX);
+	 }
+
+
+	 return 0;
+  };
+
+  std::function <void(uint64_t, uint64_t)> onText = [wContextSP] (uint64_t offset, off64_t len) {
+	 auto context = wContextSP.lock();
+
+	 if (context) {
+		char jsonDoc[1024*1024] = {};
+		if (len < sizeof(jsonDoc)) {
+		  // sad copying but nice json library
+		  if(context->_gdaxStreamSP->Pop(jsonDoc, offset, len)) {
+			 jsonDoc[len] = 0;
+			 Document jd;
+
+			 uint64_t start = 0, end = 0;
+			 unsigned int junk= 0;
+			 start = __rdtscp(&junk);
+			 jd.Parse(jsonDoc);
+			 end = __rdtscp(&junk);
+			 //printf("%zu\n", (end-start));
+			 std::cout << jsonDoc << std::endl;
 		  }
 		}
 	 }
@@ -1039,6 +1144,8 @@ int main(int argc, char **argv)
 	// END Websocket service
 
 	bool doCB = false;
+
+	// GDAX BEGIN
 	config->GetValue("do-gdax", doCB);
 	if (doCB) {
 	  std::weak_ptr<CoypuContext> wContext = contextSP;
@@ -1050,21 +1157,50 @@ int main(int argc, char **argv)
 	  std::function<void(void)> cb = [wContext, symbolList, channelList] () -> void {
 		 auto contextSP = wContext.lock();
 		 if (contextSP) {
-			std::string hostname = "ws-feed.pro.coinbase.com";
-			uint32_t port = 443;
+			std::string gdax_hostname = "ws-feed.pro.coinbase.com";
+			uint32_t gdax_port = 443;
 			auto consoleLogger = spdlog::get("console");
 			assert(consoleLogger);
 			if (consoleLogger) {
-			  consoleLogger->info("Reconnect {0}:{1}", hostname, port);
+			  consoleLogger->info("Reconnect GDAX {0}:{1}", gdax_hostname, gdax_port);
 			}
-			StreamGDAX(contextSP, hostname, port, symbolList, channelList);
+			StreamGDAX(contextSP, gdax_hostname, gdax_port, symbolList, channelList);
 		 }
 	  };
-	  contextSP->_cbManager->Register(CE_WS_CONNECT, cb);
+	  contextSP->_cbManager->Register(CE_WS_CONNECT_GDAX, cb);
 
 	  /// fire to start
-	  contextSP->_cbManager->Queue(CE_WS_CONNECT);
+	  contextSP->_cbManager->Queue(CE_WS_CONNECT_GDAX);
 	}
+	// GDAX END
+
+	// Kracken BEGIN
+	config->GetValue("do-kraken", doCB);
+	if (doCB) {
+	  std::weak_ptr<CoypuContext> wContext = contextSP;
+	  std::vector <std::string> symbolList;
+	  config->GetSeqValues("kraken-symbols", symbolList);
+  
+	  std::function<void(void)> cb = [wContext, symbolList] () -> void {
+		 auto contextSP = wContext.lock();
+		 if (contextSP) {
+			std::string kraken_hostname = "ws-sandbox.kraken.com";
+			uint32_t kraken_port = 443;
+			auto consoleLogger = spdlog::get("console");
+			assert(consoleLogger);
+			if (consoleLogger) {
+			  consoleLogger->info("Reconnect Kraken {0}:{1}", kraken_hostname, kraken_port);
+			}
+			StreamKraken(contextSP, kraken_hostname, kraken_port, symbolList);
+		 }
+	  };
+	  contextSP->_cbManager->Register(CE_WS_CONNECT_KRAKEN, cb);
+
+	  /// fire to start
+	  contextSP->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
+	}
+	// Kracken END
+	
 	
 	config->GetValue("do-server-test", doCB);
 	if (doCB) DoServerTest(contextSP);

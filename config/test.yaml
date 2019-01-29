@@ -13,8 +13,11 @@ coypu:
     logger: ws-logger
     cpu: 8
 
-do-gdax: true
-
+do-kraken: true
+kraken-symbols:
+  - XBT/USD
+  
+do-gdax: false
 gdax-symbols:
   - MANA-USDC
   - ETH-BTC
