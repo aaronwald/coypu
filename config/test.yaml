@@ -14,6 +14,9 @@ coypu:
     cpu: 8
 
 do-kraken: true
+kkraken-symbols:
+  - ETH/USD
+  
 kraken-symbols:
   - ADA/CAD
   - ADA/ETH

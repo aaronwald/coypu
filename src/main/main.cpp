@@ -922,7 +922,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 		  }
 		}
 
-		subStr= "{\"event\": \"subscribe\", \"pair\": [" + pairList + "], \"subscription\": { \"name\" : \"*\"}}";
+		subStr= "{\"event\": \"subscribe\", \"pair\": [" + pairList + "], \"subscription\": { \"name\" : \"*\", \"depth\": 100}}";
 		queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
 		
 	 }
@@ -1009,8 +1009,8 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  for (SizeType i = 0; i < trades.Size(); ++i) {
 					 const char * px = trades[i][0].GetString();
 					 const char * qty = trades[i][1].GetString();
-					 uint64_t ipx = atof(px) * 100000000;
-					 uint64_t iqty = atof(qty) * 100000000;
+					 //					 uint64_t ipx = atof(px) * 100000000;
+					 //uint64_t iqty = atof(qty) * 100000000;
 					 char pub[1024];
 					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s", pair.c_str(), px, qty);
 					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
@@ -1024,6 +1024,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				} else if (type == "book") {
 				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
 				  assert(book);
+				  //				  std::cout << jsonDoc << std::endl;
 				  
 				  const Value& snap = jd[1];
 				  if (snap.HasMember("as")) {
@@ -1081,7 +1082,9 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 						int outindex = -1;
 						
 						if (iqty == 0) {
+						  ///std::cout << "bid ask " << ipx << std::endl;
 						  book->EraseBid(ipx, outindex);
+						  //assert(outindex != -1);
 						} else {
 						  if (!book->UpdateBid(ipx, iqty, outindex)) {
 							 book->InsertBid(ipx, iqty, outindex);
