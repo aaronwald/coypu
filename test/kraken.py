@@ -15,7 +15,7 @@ pairs1 = ["BTC/USD"]
 
 params = {
     "event": "subscribe",
-    "pair": pairs1,
+    "pair": pairs,
     "subscription": { "name" : "*"}
     }
 

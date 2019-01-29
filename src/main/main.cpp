@@ -176,6 +176,8 @@ typedef struct CoypuContextS {
   std::shared_ptr <StreamType> _gdaxStreamSP;
   std::shared_ptr <StreamType> _krakenStreamSP;
   std::shared_ptr <EventCBManager<CBType>> _cbManager;
+
+  std::unordered_map<int, std::pair<std::string, std::string>> _krakenChannelToPairType;
 } CoypuContext;
 
 void bar (std::shared_ptr<CoypuContext> context, bool &done) {
@@ -912,10 +914,17 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 		std::string subStr;
 		bool queue;
 
-		for (std::string pair : symbolList) {
-		  subStr= "{\"event\": \"subscribe\", \"pair\": [\"" + pair + "\"], \"subscription\": { \"name\" : \"*\"}}";
-		  queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+		std::string pairList;
+		for (int i = 0; i < symbolList.size(); ++i) {
+		  pairList += "\"" + symbolList[i] + "\"";
+		  if (i + 1 < symbolList.size()) {
+			 pairList += ",";
+		  }
 		}
+
+		subStr= "{\"event\": \"subscribe\", \"pair\": [" + pairList + "], \"subscription\": { \"name\" : \"*\"}}";
+		queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
+		
 	 }
   };
 
@@ -949,7 +958,153 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 			 jd.Parse(jsonDoc);
 			 end = __rdtscp(&junk);
 			 //printf("%zu\n", (end-start));
-			 std::cout << jsonDoc << std::endl;
+			 if (!jd.IsArray()) {
+				std::string eventType = jd.HasMember("event") ? jd["event"].GetString() : "unknown";
+
+				if (eventType == "systemStatus") {
+				  //{"connectionID":18119784074770833087,"event":"systemStatus","status":"online","version":"0.1.1"}				  
+				} else if (eventType == "subscriptionStatus") {
+				  //{"channelID":1,"event":"subscriptionStatus","pair":"XBT/USD","status":"subscribed","subscription":{"name":"trade"}}
+				  std::string status = jd["status"].GetString();
+				  if (status == "subscribed") {
+					 uint64_t channelID = jd["channelID"].GetUint64();
+					 std::string pair = jd["pair"].GetString();
+					 pair += ".KR";
+					 const Value& subscription = jd["subscription"];
+					 std::string subType = subscription["name"].GetString();
+					 std::pair <std::string, std::string> pairType = std::make_pair(pair, subType);
+					 context->_krakenChannelToPairType.insert(std::make_pair(channelID, pairType));
+					 if (subType == "book") {
+						context->_bookMap->insert(std::make_pair(pair, std::make_shared<BookType>())); 
+					 }
+				  } else if (status == "error") {
+					 context->_consoleLogger->error("{0}", jsonDoc);
+				  } else {
+					 context->_consoleLogger->error("{0}", jsonDoc);
+					 assert(false);
+				  }
+				} else if (eventType == "heartbeat") {
+				  //{"event":"heartbeat"}
+				} else if (jd.HasMember("Error")) {
+				  context->_consoleLogger->error("{0}", jsonDoc);
+				} else {
+				  std::cerr << jsonDoc << std::endl;
+				  assert(false);
+				}
+			 } else {
+				int channelId = jd[0].GetInt();
+				auto p = context->_krakenChannelToPairType.find(channelId);
+				assert(p != context->_krakenChannelToPairType.end());
+				std::string &pair = (*p).second.first;
+				std::string &type = (*p).second.second;
+				if (type == "ohlc") {
+				  // nop
+				} else if (type == "spread") {
+				  // nop
+				} else if (type == "trade") {
+				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
+				  assert(book);
+
+				  const Value& trades = jd[1];
+				  for (SizeType i = 0; i < trades.Size(); ++i) {
+					 const char * px = trades[i][0].GetString();
+					 const char * qty = trades[i][1].GetString();
+					 uint64_t ipx = atof(px) * 100000000;
+					 uint64_t iqty = atof(qty) * 100000000;
+					 char pub[1024];
+					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s", pair.c_str(), px, qty);
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+					 context->_publishStreamSP->Push(pub, len);
+					 context->_wsAnonManager->SetWriteAll();
+				  }
+				} else if (type == "ticker") {
+				  // nop
+				} else if (type == "heartbeat") {
+				  // nop
+				} else if (type == "book") {
+				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
+				  assert(book);
+				  
+				  const Value& snap = jd[1];
+				  if (snap.HasMember("as")) {
+					 const Value& levels = snap["as"];
+
+					 for (SizeType i = 0; i < levels.Size(); ++i) {
+						const char * px = levels[i][0].GetString();
+						const char * qty = levels[i][1].GetString();
+						uint64_t ipx = atof(px) * 100000000;
+						uint64_t iqty = atof(qty) * 100000000;
+						int outindex = -1;
+						book->InsertAsk(ipx, iqty, outindex);
+					 }
+				  }
+				  if (snap.HasMember("a")) {
+					 const Value& levels = snap["a"];
+
+					 for (SizeType i = 0; i < levels.Size(); ++i) {
+						const char * px = levels[i][0].GetString();
+						const char * qty = levels[i][1].GetString();
+						uint64_t ipx = atof(px) * 100000000;
+						uint64_t iqty = atof(qty) * 100000000;
+						int outindex = -1;
+						
+						if (iqty == 0) {
+						  book->EraseAsk(ipx, outindex);
+						} else {
+						  if (!book->UpdateAsk(ipx, iqty, outindex)) {
+							 book->InsertAsk(ipx, iqty, outindex);
+						  }
+						}
+					 }
+				  }
+
+				  if (snap.HasMember("bs")) {
+					 const Value& levels = snap["bs"];
+
+					 for (SizeType i = 0; i < levels.Size(); ++i) {
+						const char * px = levels[i][0].GetString();
+						const char * qty = levels[i][1].GetString();
+						uint64_t ipx = atof(px) * 100000000;
+						uint64_t iqty = atof(qty) * 100000000;
+						int outindex = -1;
+						book->InsertBid(ipx, iqty, outindex);
+					 }
+				  }
+				  if (snap.HasMember("b")) {
+					 const Value& levels = snap["b"];
+
+					 for (SizeType i = 0; i < levels.Size(); ++i) {
+						const char * px = levels[i][0].GetString();
+						const char * qty = levels[i][1].GetString();
+						uint64_t ipx = atof(px) * 100000000;
+						uint64_t iqty = atof(qty) * 100000000;
+						int outindex = -1;
+						
+						if (iqty == 0) {
+						  book->EraseBid(ipx, outindex);
+						} else {
+						  if (!book->UpdateBid(ipx, iqty, outindex)) {
+							 book->InsertBid(ipx, iqty, outindex);
+						  }
+						}
+					 }
+				  }
+
+				  // publish kraken
+				  CoinLevel bid,ask;
+				  book->BestBid(bid);
+				  book->BestAsk(ask);
+				  char pub[1024];
+				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", pair.c_str(), 
+												  bid.qty, bid.px, ask.px, ask.qty);
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+				  context->_publishStreamSP->Push(pub, len);
+				  context->_wsAnonManager->SetWriteAll();
+				} else {
+				  std::cerr << "unsupported " << type << std::endl;
+				  assert(false);
+				}
+			 }
 		  }
 		}
 	 }
@@ -1180,11 +1335,13 @@ int main(int argc, char **argv)
 	  std::weak_ptr<CoypuContext> wContext = contextSP;
 	  std::vector <std::string> symbolList;
 	  config->GetSeqValues("kraken-symbols", symbolList);
+	  std::string kraken_hostname;
+	  config->GetValue("kraken-host", kraken_hostname);
+	  assert(!kraken_hostname.empty());
   
-	  std::function<void(void)> cb = [wContext, symbolList] () -> void {
+	  std::function<void(void)> cb = [wContext, symbolList, kraken_hostname] () -> void {
 		 auto contextSP = wContext.lock();
 		 if (contextSP) {
-			std::string kraken_hostname = "ws-sandbox.kraken.com";
 			uint32_t kraken_port = 443;
 			auto consoleLogger = spdlog::get("console");
 			assert(consoleLogger);

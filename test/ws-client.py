@@ -113,10 +113,10 @@ if __name__ == "__main__":
                         f = "{:12.4f}".format(bid_qty)
                         stdscr.addstr(y, 15, f)
 
-                        f = "{:12.6f}".format(bid_px)
-                        stdscr.addstr(y, 30, f)
+                        f = "{:13.7f}".format(bid_px)
+                        stdscr.addstr(y, 29, f)
 
-                        f = "x {:12.6f}".format(ask_px)
+                        f = "x {:13.7f}".format(ask_px)
                         stdscr.addstr(y, 43, f)
 
 
