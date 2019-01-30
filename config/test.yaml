@@ -17,10 +17,10 @@ coypu:
     cpu: 8
 
 do-kraken: true
-kkraken-symbols:
-  - XBT/EUR
-  
 kraken-symbols:
+  - ETH/USD
+  
+kkraken-symbols:
   - ADA/CAD
   - ADA/ETH
   - ADA/EUR
@@ -104,9 +104,13 @@ kraken-symbols:
   - XTZ/USD
   - XTZ/XBT
   
-do-gdax: false
-kraken-host: "ws-sandbox.kraken.com"
+do-gdax: true
+sandbox-kraken-host: "ws-sandbox.kraken.com"
+kraken-host: "ws.kraken.com"
 gdax-symbols:
+  - ETH-USD
+  
+ggdax-symbols:
   - MANA-USDC
   - ETH-BTC
   - ETH-USD

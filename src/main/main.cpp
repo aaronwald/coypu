@@ -928,13 +928,13 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 	 }
   };
 
-    std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+  std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
-		context->_cbManager->Queue(CE_GDAX_BOOK_CLEAR);
-		context->_cbManager->Queue(CE_WS_CONNECT_GDAX);
+		//		context->_cbManager->Queue(CE_KRAKEN_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
 	 }
 
 
@@ -948,7 +948,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 		char jsonDoc[1024*1024] = {};
 		if (len < sizeof(jsonDoc)) {
 		  // sad copying but nice json library
-		  if(context->_gdaxStreamSP->Pop(jsonDoc, offset, len)) {
+		  if(context->_krakenStreamSP->Pop(jsonDoc, offset, len)) {
 			 jsonDoc[len] = 0;
 			 Document jd;
 
@@ -958,7 +958,12 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 			 jd.Parse(jsonDoc);
 			 end = __rdtscp(&junk);
 			 //printf("%zu\n", (end-start));
+			 //			 std::cerr << jsonDoc << std::endl;
+
 			 if (!jd.IsArray()) {
+				if (!jd.IsObject()) {
+				  assert(false);
+				}
 				std::string eventType = jd.HasMember("event") ? jd["event"].GetString() : "unknown";
 
 				if (eventType == "systemStatus") {
@@ -1143,7 +1148,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
   std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
 		
-  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
+  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_krakenStreamSP, nullptr);	
   contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 
   // Sets the end-point
