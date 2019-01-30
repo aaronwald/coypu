@@ -51,6 +51,7 @@ if __name__ == "__main__":
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
     curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)
     height,width = stdscr.getmaxyx()
 
     last_y = 0
@@ -113,12 +114,20 @@ if __name__ == "__main__":
                         f = "{:12.4f}".format(bid_qty)
                         stdscr.addstr(y, 15, f)
 
-                        f = "{:14.7f}".format(bid_px)
-                        stdscr.addstr(y, 28, f)
+                        if bid_px > ask_px:
+                            f = "{:14.7f}".format(bid_px)
+                            stdscr.addstr(y, 28, f, curses.color_pair(4))
+                        
+                            f = "x {:14.7f}".format(ask_px)
+                            stdscr.addstr(y, 43, f, curses.color_pair(4))
+                        else: 
+                            f = "{:14.7f}".format(bid_px)
+                            stdscr.addstr(y, 28, f)
+                            
+                            f = "x {:14.7f}".format(ask_px)
+                            stdscr.addstr(y, 43, f)
 
-                        f = "x {:14.7f}".format(ask_px)
-                        stdscr.addstr(y, 43, f)
-
+                        
 
                         f = "{:12.4f}".format(ask_qty)
                         stdscr.addstr(y, 60, f)

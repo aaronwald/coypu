@@ -3,6 +3,9 @@ loggers:
   ws-logger:
     level: debug
     file: websocket.log
+  debug:
+    level: debug
+    file: debug.log
 
 interface: enp0s3
 coypu-publish-path: stream/publish/data
@@ -15,7 +18,7 @@ coypu:
 
 do-kraken: true
 kkraken-symbols:
-  - ETH/USD
+  - XBT/EUR
   
 kraken-symbols:
   - ADA/CAD

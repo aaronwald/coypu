@@ -353,19 +353,27 @@ public:
 		return _asks.GetBack(t);
 	}
 
-	void Clear () {
+	void ClearBid () {
 	  std::vector<T *> levels;
 	  _bids.Clear(levels);
 	  for (T *t : levels) {
 		 Free(t);
 	  }
 	  levels.clear();
-	  
+	}
+
+	void ClearAsk () {
+	  std::vector<T *> levels;
 	  _asks.Clear(levels);
 	  for (T *t : levels) {
 		 Free(t);
 	  }
 	  levels.clear();
+	}
+
+	void Clear () {
+	  ClearBid();
+	  ClearAsk();
 	}
 
 private:

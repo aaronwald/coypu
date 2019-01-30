@@ -1024,70 +1024,86 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				} else if (type == "book") {
 				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
 				  assert(book);
-				  //				  std::cout << jsonDoc << std::endl;
+
+				  //std::shared_ptr<spdlog::logger> x = spdlog::get("debug");
+				  //				  assert(x);
+
+				  // iterate through list of updates
+				  for (int z  = 1; z < jd.Size(); ++z) {
+					 const Value& snap = jd[z];
 				  
-				  const Value& snap = jd[1];
-				  if (snap.HasMember("as")) {
-					 const Value& levels = snap["as"];
+					 if (snap.HasMember("as")) {
+						book->ClearAsk();
+						const Value& levels = snap["as"];
 
-					 for (SizeType i = 0; i < levels.Size(); ++i) {
-						const char * px = levels[i][0].GetString();
-						const char * qty = levels[i][1].GetString();
-						uint64_t ipx = atof(px) * 100000000;
-						uint64_t iqty = atof(qty) * 100000000;
-						int outindex = -1;
-						book->InsertAsk(ipx, iqty, outindex);
+						for (SizeType i = 0; i < levels.Size(); ++i) {
+						  const char * px = levels[i][0].GetString();
+						  const char * qty = levels[i][1].GetString();
+						  uint64_t ipx = atof(px) * 100000000;
+						  uint64_t iqty = atof(qty) * 100000000;
+						  int outindex = -1;
+						  book->InsertAsk(ipx, iqty, outindex);
+						  //x->debug("Insert ask {0} {1} {2}", pair, ipx, iqty);
+						}
 					 }
-				  }
-				  if (snap.HasMember("a")) {
-					 const Value& levels = snap["a"];
+					 if (snap.HasMember("a")) {
+						const Value& levels = snap["a"];
 
-					 for (SizeType i = 0; i < levels.Size(); ++i) {
-						const char * px = levels[i][0].GetString();
-						const char * qty = levels[i][1].GetString();
-						uint64_t ipx = atof(px) * 100000000;
-						uint64_t iqty = atof(qty) * 100000000;
-						int outindex = -1;
+						for (SizeType i = 0; i < levels.Size(); ++i) {
+						  const char * px = levels[i][0].GetString();
+						  const char * qty = levels[i][1].GetString();
+						  uint64_t ipx = atof(px) * 100000000;
+						  uint64_t iqty = atof(qty) * 100000000;
+						  int outindex = -1;
 						
-						if (iqty == 0) {
-						  book->EraseAsk(ipx, outindex);
-						} else {
-						  if (!book->UpdateAsk(ipx, iqty, outindex)) {
-							 book->InsertAsk(ipx, iqty, outindex);
+						  if (iqty == 0) {
+							 book->EraseAsk(ipx, outindex);
+							 //							 x->debug("Erase ask {0} {1} {2}", pair, ipx, iqty);
+						  } else {
+							 if (!book->UpdateAsk(ipx, iqty, outindex)) {
+								book->InsertAsk(ipx, iqty, outindex);
+								//x->debug("Insert ask {0} {1} {2}", pair, ipx, iqty);
+							 } else {
+								//x->debug("Update ask {0} {1} {2}", pair, ipx, iqty);
+							 }
 						  }
 						}
 					 }
-				  }
 
-				  if (snap.HasMember("bs")) {
-					 const Value& levels = snap["bs"];
+					 if (snap.HasMember("bs")) {
+						book->ClearBid();
+						const Value& levels = snap["bs"];
 
-					 for (SizeType i = 0; i < levels.Size(); ++i) {
-						const char * px = levels[i][0].GetString();
-						const char * qty = levels[i][1].GetString();
-						uint64_t ipx = atof(px) * 100000000;
-						uint64_t iqty = atof(qty) * 100000000;
-						int outindex = -1;
-						book->InsertBid(ipx, iqty, outindex);
+						for (SizeType i = 0; i < levels.Size(); ++i) {
+						  const char * px = levels[i][0].GetString();
+						  const char * qty = levels[i][1].GetString();
+						  uint64_t ipx = atof(px) * 100000000;
+						  uint64_t iqty = atof(qty) * 100000000;
+						  int outindex = -1;
+						  book->InsertBid(ipx, iqty, outindex);
+						  //x->debug("Insert bid {0} {1} {2}", pair, ipx, iqty);
+						}
 					 }
-				  }
-				  if (snap.HasMember("b")) {
-					 const Value& levels = snap["b"];
+					 if (snap.HasMember("b")) {
+						const Value& levels = snap["b"];
 
-					 for (SizeType i = 0; i < levels.Size(); ++i) {
-						const char * px = levels[i][0].GetString();
-						const char * qty = levels[i][1].GetString();
-						uint64_t ipx = atof(px) * 100000000;
-						uint64_t iqty = atof(qty) * 100000000;
-						int outindex = -1;
+						for (SizeType i = 0; i < levels.Size(); ++i) {
+						  const char * px = levels[i][0].GetString();
+						  const char * qty = levels[i][1].GetString();
+						  uint64_t ipx = atof(px) * 100000000;
+						  uint64_t iqty = atof(qty) * 100000000;
+						  int outindex = -1;
 						
-						if (iqty == 0) {
-						  ///std::cout << "bid ask " << ipx << std::endl;
-						  book->EraseBid(ipx, outindex);
-						  //assert(outindex != -1);
-						} else {
-						  if (!book->UpdateBid(ipx, iqty, outindex)) {
-							 book->InsertBid(ipx, iqty, outindex);
+						  if (iqty == 0) {
+							 book->EraseBid(ipx, outindex);
+							 //x->debug("Erase bid {0} {1} {2}", pair, ipx, iqty);
+						  } else {
+							 if (!book->UpdateBid(ipx, iqty, outindex)) {
+								book->InsertBid(ipx, iqty, outindex);
+								//								x->debug("Insert bid {0} {1} {2}", pair, ipx, iqty);
+							 } else {
+								//x->debug("Update bid {0} {1} {2}", pair, ipx, iqty);
+							 }
 						  }
 						}
 					 }
@@ -1098,6 +1114,15 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  book->BestBid(bid);
 				  book->BestAsk(ask);
 				  char pub[1024];
+				  //				  x->debug("{0} {1}", pair, jsonDoc);
+
+				  if (bid.px > ask.px) {
+					 //					 x->warn("Cross {0} {1} {2}", pair, bid.px, ask.px);
+					 //					 x->flush();
+					 context->_consoleLogger->warn("Cross [{0}]", pair);
+				  }
+				  
+
 				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", pair.c_str(), 
 												  bid.qty, bid.px, ask.px, ask.qty);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
