@@ -73,6 +73,7 @@ namespace  coypu
 
                     int r =  EPollHelper::Add(_fd, fd, &event);
                     if (r != 0) {
+							 assert(false);
                         Unregister(fd); // cleanup
                     }
                     return r;
@@ -141,6 +142,7 @@ namespace  coypu
                                     cb->_cf(cb->_fd);
                                 }
                                 _closeList.push_back(cb->_fd);
+										  ::close(cb->_fd);
                             } 
                         }
 

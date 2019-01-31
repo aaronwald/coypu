@@ -63,8 +63,16 @@ using namespace coypu::admin;
 
 extern "C" void processRust(uint32_t);
 
+enum CoypuSource {
+  SOURCE_UNKNOWN,
+  SOURCE_GDAX,
+  SOURCE_KRAKEN,
+  SOURCE_MAX
+};
+
 enum CoypuEvents {
-  CE_GDAX_BOOK_CLEAR,
+  CE_BOOK_CLEAR_GDAX,
+  CE_BOOK_CLEAR_KRAKEN,
   CE_WS_CONNECT_GDAX,
   CE_WS_CONNECT_KRAKEN
 };
@@ -143,25 +151,29 @@ typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
+const std::string COYPU_DEFAULT_ADMIN_PORT = "9999";
 
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
 	 _consoleLogger = consoleLogger;
-	 _bookMap = std::make_shared<BookMapType>();
 	 _txtBufs = std::make_shared<TxtBufMapType>();
 	 _eventMgr = std::make_shared<EventManagerType>(consoleLogger);
 	 _set_write_ws = std::bind(&EventManagerType::SetWrite, _eventMgr, std::placeholders::_1);
 	 _wsManager = std::make_shared<WebSocketManagerType>(wsLogger, _set_write_ws);
 	 _wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, _set_write_ws);
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
-	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/"); 
+	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/");
+
+	 for (int i = 0; i < SOURCE_MAX; ++i) {
+		_bookSourceMap.push_back(std::make_shared<BookMapType>());
+	 }
   }
   CoypuContextS(const CoypuContextS &other) = delete;
   CoypuContextS &operator=(const CoypuContextS &other) = delete;
 
   LogType _consoleLogger;
-  
-  std::shared_ptr <BookMapType> _bookMap;
+
+  std::vector<std::shared_ptr <BookMapType>> _bookSourceMap;
   std::shared_ptr <TxtBufMapType> _txtBufs;
   std::shared_ptr <EventManagerType> _eventMgr;
   std::function<int(int)> _set_write_ws;
@@ -190,18 +202,20 @@ void bar (std::shared_ptr<CoypuContext> context, bool &done) {
 	}
 }
 
-void EventClearBooks (std::weak_ptr<CoypuContext> wContext) {
+void EventClearBooks (uint32_t source, std::weak_ptr<CoypuContext> wContext) {
   auto consoleLogger = spdlog::get("console");
   assert(consoleLogger);
 
   std::shared_ptr<CoypuContext> context = wContext.lock();
   if (context) {
-	 for (auto &b : *context->_bookMap) {
-		if (consoleLogger) {
-		  consoleLogger->info("Clear {0}", b.first);
+	 for (auto &b : *context->_bookSourceMap[source]) {
+		if (b.second->GetSource() == source) {
+		  if (consoleLogger) {
+			 consoleLogger->info("Source [{1}] Clear [{0}]", b.first, source);
+		  }
+		  
+		  b.second->Clear();
 		}
-
-		b.second->Clear();
 	 }
   }
 }
@@ -342,8 +356,11 @@ std::shared_ptr<EventCBManager<T>> CreateCBManager (std::shared_ptr<CoypuContext
   std::shared_ptr <event_type> sp = std::make_shared<event_type>(fd, contextSP->_set_write_ws);
 
   std::weak_ptr<CoypuContext> wContext = contextSP;
-  std::function<void(void)> cb = [wContext] () -> void { EventClearBooks(wContext); }; 
-  sp->Register(CE_GDAX_BOOK_CLEAR, cb);
+  std::function<void(void)> cb = [wContext] () -> void { EventClearBooks(SOURCE_GDAX, wContext); }; 
+  sp->Register(CE_BOOK_CLEAR_GDAX, cb);
+  
+  cb = [wContext] () -> void { EventClearBooks(SOURCE_KRAKEN, wContext); }; 
+  sp->Register(CE_BOOK_CLEAR_KRAKEN, cb);
   
   std::function<int(int)> readCB = std::bind(&event_type::Read, sp, std::placeholders::_1);
   std::function<int(int)> writeCB = std::bind(&event_type::Write, sp, std::placeholders::_1);
@@ -372,7 +389,7 @@ void DoServerTest (std::shared_ptr<CoypuContext> contextSP)
   contextSP->_wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
 }
 
-void SetupAdmin (std::string &interface, std::shared_ptr<CoypuContext> context) {
+void SetupAdmin (std::string &interface, std::shared_ptr<CoypuContext> context, uint16_t port) {
   std::weak_ptr <CoypuContext> wContextSP = context;
   coypu::event::callback_type adminAcceptCB = [wContextSP] (int fd) {
 	 struct sockaddr_in client_addr= {0};
@@ -404,7 +421,7 @@ void SetupAdmin (std::string &interface, std::shared_ptr<CoypuContext> context) 
 
   auto contextSP = wContextSP.lock();
   if (contextSP) {
-	 int adminFD = BindAndListen(contextSP->_consoleLogger, interface, 9999);
+	 int adminFD = BindAndListen(contextSP->_consoleLogger, interface, port);
 	 if (adminFD > 0) {
 		if (contextSP->_eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
 		  contextSP->_consoleLogger->perror(errno, "Register");
@@ -568,13 +585,17 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
 	 
 	 std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
 	 std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
-	 context->_wsAnonManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);	
-	 context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
-	 
+	 bool b = context->_wsAnonManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);
+	 assert(b);
+	 int r = context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+	 assert(r == 0);
+
+
+	 /*
+	 // dont capture the clientfd. causes an issue if you call set write on it 
 	 int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
 	 TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
-	 
-	 std::function<int(int)> readTimerCB = [wContextSP, clientfd] (int fd) {
+	 std::function<int(int)> readTimerCB = [wContextSP] (int fd) {
 		uint64_t x;
 		if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
 		  // TODO some error
@@ -589,12 +610,13 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
 		  size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
 		  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 		  context->_publishStreamSP->Push(pub, len);
-		  context->_eventMgr->SetWrite(clientfd);
+		  context->_wsAnonManager->SetWriteAll();
 		}
 		
 		return 0;
 	 };
 	 context->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
+	 */
   }
 }
 
@@ -641,7 +663,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
-		context->_cbManager->Queue(CE_GDAX_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_BOOK_CLEAR_GDAX);
 		context->_cbManager->Queue(CE_WS_CONNECT_GDAX);
 	 }
 
@@ -651,8 +673,9 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
   std::function <void(uint64_t, uint64_t)> onText = [wContextSP] (uint64_t offset, off64_t len) {
 	 auto context = wContextSP.lock();
-
 	 if (context) {
+		std::shared_ptr<BookMapType> &bookMap = context->_bookSourceMap[SOURCE_GDAX];
+
 		char jsonDoc[1024*1024] = {};
 		if (len < sizeof(jsonDoc)) {
 		  // sad copying but nice json library
@@ -671,8 +694,8 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 			 const char * type = jd["type"].GetString();
 			 if (!strcmp(type, "snapshot")) {
 				const char *product = jd["product_id"].GetString();
-				context->_bookMap->insert(std::make_pair(product, std::make_shared<BookType>())); // create string
-				std::shared_ptr<BookType> book = (*context->_bookMap)[product];
+				bookMap->insert(std::make_pair(product, std::make_shared<BookType>(SOURCE_GDAX))); // create string
+				std::shared_ptr<BookType> book = (*bookMap)[product];
 				assert(book);
 
 				const Value& bids = jd["bids"];
@@ -699,11 +722,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				const char *product = jd["product_id"].GetString();
 				static std::string lookup;
 				lookup = product; // should call look.reserve(8);
-				if (context->_bookMap->find(lookup) == context->_bookMap->end()) {
-				  std::cerr << "Missing book " << lookup << std::endl;
-				  //							  return;
-				}
-				std::shared_ptr<BookType> book = (*context->_bookMap)[lookup];
+				std::shared_ptr<BookType> book = (*bookMap)[lookup];
 				assert(book);
 
 				const Value& changes = jd["changes"];
@@ -738,16 +757,11 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  book->BestBid(bid);
 				  book->BestAsk(ask);
 				  char pub[1024];
-				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", product, 
-												  bid.qty, bid.px, ask.px, ask.qty);
+				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", product, 
+												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_GDAX);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 				  context->_publishStreamSP->Push(pub, len);
 				  context->_wsAnonManager->SetWriteAll();
-
-				  // std::cout << std::endl << std::endl;
-				  // book->RDumpAsk(20, true);			
-				  // std::cout << "---" << std::endl;
-				  // book->RDumpBid(20);			
 				}
 			 } else if (!strcmp(type, "error")) {
 				context->_consoleLogger->error("{0}", jsonDoc);
@@ -853,7 +867,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
 				if (tradeId != UINT64_MAX) {
 				  char pub[1024];
-				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s", product, vol24, px, tradeId, lastSize);
+				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 				  context->_publishStreamSP->Push(pub, len);
 				  context->_wsAnonManager->SetWriteAll();
@@ -933,7 +947,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
-		//		context->_cbManager->Queue(CE_KRAKEN_BOOK_CLEAR);
+		context->_cbManager->Queue(CE_BOOK_CLEAR_KRAKEN);
 		context->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
 	 }
 
@@ -943,8 +957,9 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 
   std::function <void(uint64_t, uint64_t)> onText = [wContextSP] (uint64_t offset, off64_t len) {
 	 auto context = wContextSP.lock();
-
 	 if (context) {
+		std::shared_ptr<BookMapType> &bookMap = context->_bookSourceMap[SOURCE_KRAKEN];
+
 		char jsonDoc[1024*1024] = {};
 		if (len < sizeof(jsonDoc)) {
 		  // sad copying but nice json library
@@ -974,13 +989,13 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  if (status == "subscribed") {
 					 uint64_t channelID = jd["channelID"].GetUint64();
 					 std::string pair = jd["pair"].GetString();
-					 pair += ".KR";
+					 //pair += ".KR";
 					 const Value& subscription = jd["subscription"];
 					 std::string subType = subscription["name"].GetString();
 					 std::pair <std::string, std::string> pairType = std::make_pair(pair, subType);
 					 context->_krakenChannelToPairType.insert(std::make_pair(channelID, pairType));
 					 if (subType == "book") {
-						context->_bookMap->insert(std::make_pair(pair, std::make_shared<BookType>())); 
+						bookMap->insert(std::make_pair(pair, std::make_shared<BookType>(SOURCE_KRAKEN))); 
 					 }
 				  } else if (status == "error") {
 					 context->_consoleLogger->error("{0}", jsonDoc);
@@ -998,7 +1013,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				}
 			 } else {
 				int channelId = jd[0].GetInt();
-				auto p = context->_krakenChannelToPairType.find(channelId);
+				auto p = context->_krakenChannelToPairType.find(channelId); // TODO Use channel id to get book directly
 				assert(p != context->_krakenChannelToPairType.end());
 				std::string &pair = (*p).second.first;
 				std::string &type = (*p).second.second;
@@ -1007,9 +1022,6 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				} else if (type == "spread") {
 				  // nop
 				} else if (type == "trade") {
-				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
-				  assert(book);
-
 				  const Value& trades = jd[1];
 				  for (SizeType i = 0; i < trades.Size(); ++i) {
 					 const char * px = trades[i][0].GetString();
@@ -1017,7 +1029,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 					 //					 uint64_t ipx = atof(px) * 100000000;
 					 //uint64_t iqty = atof(qty) * 100000000;
 					 char pub[1024];
-					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s", pair.c_str(), px, qty);
+					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s %d", pair.c_str(), px, qty, SOURCE_KRAKEN);
 					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 					 context->_publishStreamSP->Push(pub, len);
 					 context->_wsAnonManager->SetWriteAll();
@@ -1027,7 +1039,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				} else if (type == "heartbeat") {
 				  // nop
 				} else if (type == "book") {
-				  std::shared_ptr<BookType> book = (*context->_bookMap)[pair];
+				  std::shared_ptr<BookType> book = (*bookMap)[pair];
 				  assert(book);
 
 				  //std::shared_ptr<spdlog::logger> x = spdlog::get("debug");
@@ -1118,18 +1130,14 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  CoinLevel bid,ask;
 				  book->BestBid(bid);
 				  book->BestAsk(ask);
-				  char pub[1024];
-				  //				  x->debug("{0} {1}", pair, jsonDoc);
 
 				  if (bid.px > ask.px) {
-					 //					 x->warn("Cross {0} {1} {2}", pair, bid.px, ask.px);
-					 //					 x->flush();
 					 context->_consoleLogger->warn("Cross [{0}]", pair);
 				  }
 				  
-
-				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu", pair.c_str(), 
-												  bid.qty, bid.px, ask.px, ask.qty);
+				  char pub[1024];
+				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", pair.c_str(), 
+												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_KRAKEN);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 				  context->_publishStreamSP->Push(pub, len);
 				  context->_wsAnonManager->SetWriteAll();
@@ -1394,8 +1402,10 @@ int main(int argc, char **argv)
 	
 	config->GetValue("do-server-test", doCB);
 	if (doCB) DoServerTest(contextSP);
-	
-	SetupAdmin(interface, contextSP);
+
+	std::string adminPort;
+	config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
+	SetupAdmin(interface, contextSP, atoi(adminPort.c_str()));
 
 	// watch out for threading on loggers
 	std::thread t1(bar, contextSP, std::ref(done));

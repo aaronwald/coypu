@@ -277,12 +277,15 @@ template <typename T, uint32_t PageSize>
 class CBook
 {
 public:
-	CBook() : _freeList(nullptr),
-		_bids ([] (const T *lhs, const T *rhs) -> bool { return lhs->px < rhs->px; }),
-		_asks ([] (const T *lhs, const T *rhs) -> bool { return lhs->px > rhs->px; }) 
+ CBook(uint32_t source) : _freeList(nullptr),
+	 _source(source),
+	 _bids ([] (const T *lhs, const T *rhs) -> bool { return lhs->px < rhs->px; }),
+	 _asks ([] (const T *lhs, const T *rhs) -> bool { return lhs->px > rhs->px; }) 
 		{}
 
 	virtual ~CBook() {}
+
+	uint32_t GetSource() { return _source; }
 
 	bool InsertBid(uint64_t px, uint64_t qty, int &index) {
 		T *t = Allocate(px, qty);
@@ -405,6 +408,7 @@ private:
 	}
 
 	T *_freeList;
+	uint32_t _source;
 	LevelAllocator<T, PageSize> _la;
 	CLevelFwdBook<T> _bids;
 	CLevelFwdBook<T> _asks;
