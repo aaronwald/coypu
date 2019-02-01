@@ -90,25 +90,34 @@ TEST(ProtoTest, Test2)
   LogZeroCopyOutputStream<stream_type> zOutput(&rwBuf);
   google::protobuf::io::CodedOutputStream coded_output(&zOutput);
   for (int i = 0; i < 32; ++i) {
-	 snprintf(key, 32, "foo_%d", i);
+	 ::snprintf(key, 32, "foo_%d", i);
 	 gCC.set_key(key);
 	 gCC.set_seqno(i);
-	 size_t s = gCC.ByteSizeLong();
 	 ASSERT_TRUE(gCC.IsInitialized());
+
+	 const int size = gCC.ByteSize();
+	 coded_output.WriteVarint32(size);
+					 
 	 ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
-	 std::cout << gCC.DebugString() << std::endl;
   }
 
   LogZeroCopyInputStream<stream_type> zInput(&rwBuf);
   google::protobuf::io::CodedInputStream coded_input(&zInput);
   for (int i = 0; i < 32; ++i) {
 	 coypu::msg::CoinCache gCC2;
-	 ASSERT_TRUE(gCC2.ParseFromCodedStream(&coded_input));
-	 std::cout << gCC2.DebugString() << std::endl;
+	 uint32_t size;
+	 ASSERT_TRUE(coded_input.ReadVarint32(&size));
+
+	 google::protobuf::io::CodedInputStream::Limit limit =
+		coded_input.PushLimit(size);
+	 
+	 ASSERT_TRUE(gCC2.MergeFromCodedStream(&coded_input));
+
 		 
 	 ASSERT_TRUE(coded_input.ConsumedEntireMessage());
-	 
-	 snprintf(key, 32, "foo_%d", i);
+	 coded_input.PopLimit(limit);
+
+	 ::snprintf(key, 32, "foo_%d", i);
 
 	 ASSERT_EQ(key, gCC2.key());
 	 ASSERT_EQ(i, gCC2.seqno());
