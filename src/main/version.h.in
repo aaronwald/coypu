@@ -1,0 +1,1 @@
+#define _GIT_REV "@GIT_SHA1@"

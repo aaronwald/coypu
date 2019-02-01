@@ -1,3 +1,4 @@
+#include "version.h"
 #include <stdio.h>
 #include <signal.h>
 #include <netinet/in.h>

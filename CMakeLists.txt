@@ -20,6 +20,8 @@ set(CMAKE_FIND_LIBRARY_SUFFIXES .a .so ${CMAKE_FIND_LIBRARY_SUFFIXES})
 include(GetGitRevisionDescription)
 get_git_head_revision(GIT_REFSPEC GIT_SHA1)
 
+configure_file("src/main/version.h.in" "../src/main/version.h")
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(coypu_VERSION_MAJOR 0)
 set(coypu_VERSION_MINOR 3)
@@ -37,7 +39,7 @@ SET(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG=1 -DSPDLOG_DEBUG_ON=0 -DSPDLOG_TRACE_O
 SET(CMAKE_CXX_FLAGS_DEBUG   "-O0 -fno-omit-frame-pointer -g -DSPDLOG_DEBUG_ON=1 -DSPDLOG_TRACE_ON=1")
 #SET(CMAKE_EXE_LINKER_FLAGS "-stdlib=libc++")
 
-add_definitions("-D_GIT_REV=\"${GIT_SHA1}\"")
+#add_definitions("-D_GIT_REV=\"${GIT_SHA1}\"")
 add_definitions("-DCOYPU_VERSION=\"${coypu_VERSION_MAJOR}.${coypu_VERSION_MINOR}\"")
 
 file(GLOB_RECURSE COYPU_SRC ${PROJECT_SOURCE_DIR}/src/main/*.cpp)

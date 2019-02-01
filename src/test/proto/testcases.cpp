@@ -96,6 +96,7 @@ TEST(ProtoTest, Test2)
 	 size_t s = gCC.ByteSizeLong();
 	 ASSERT_TRUE(gCC.IsInitialized());
 	 ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
+	 std::cout << gCC.DebugString() << std::endl;
   }
 
   LogZeroCopyInputStream<stream_type> zInput(&rwBuf);
@@ -103,6 +104,8 @@ TEST(ProtoTest, Test2)
   for (int i = 0; i < 32; ++i) {
 	 coypu::msg::CoinCache gCC2;
 	 ASSERT_TRUE(gCC2.ParseFromCodedStream(&coded_input));
+	 std::cout << gCC2.DebugString() << std::endl;
+		 
 	 ASSERT_TRUE(coded_input.ConsumedEntireMessage());
 	 
 	 snprintf(key, 32, "foo_%d", i);
