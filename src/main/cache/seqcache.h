@@ -13,6 +13,20 @@
 
 namespace coypu {
     namespace cache {
+		// Check bloom filter on each connection. Send if interest - compute hash once to scale with connections.
+		// Would need a more advanced publish stream to target - allows fd target to fix pong
+		// Record per tag - mark with offset / no seqno
+		// To post doc we need a protocol that sends us the tags so we can hash them.
+		// > Use google protobuf here?
+		// > Post tags,tag,tag,tag, doc
+		struct TagCache {
+		  uint64_t _offset;
+		  uint64_t _hashValue; // murmur + sha256? - check bit % maxBits - can just grow bits per tag, and just expand on connection to support max size
+		  
+		  int _fd;
+		  char _pad[12];
+		};
+   	
         template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
             class SequenceCache;
 
@@ -26,6 +40,7 @@ namespace coypu {
 
                 SequenceCache (const std::shared_ptr<LogStreamTrait> &stream) :  _nextSeqNo(0), _stream(stream) {
                     static_assert(sizeof(CacheType) == SizeCheck, "CacheType Size Check");
+						  static_assert(sizeof(TagCache) == 32, "TagCache Size Check");
                 }
 
                 virtual ~SequenceCache () {

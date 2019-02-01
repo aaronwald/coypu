@@ -19,13 +19,21 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "gtest/gtest.h"
+#include "store/store.h"
+#include "file/file.h"
+#include "mem/mem.h"
 #include "proto/coincache.pb.h"
+#include "protobuf/streams.h"
 
 #include <string>
 #include <sstream>
 #include <iostream>
 
+using namespace coypu::store;
+using namespace coypu::file;
+using namespace coypu::mem;
 using namespace coypu::msg;
+using namespace coypu::protobuf;
 
 class outbuf : public std::streambuf {
 protected:
@@ -54,5 +62,64 @@ TEST(ProtoTest, Test1)
   std::ostream os(&ob);
   ASSERT_TRUE(gCC.SerializeToOstream(&os));
   os << "foo";
+}
+
+TEST(ProtoTest, Test2)
+{
+  char buf[1024];
+  int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
+  ASSERT_TRUE(fd > 0);
+
+  typedef LogRWStream<MMapShared, LRUCache, 16> stream_type;
+  stream_type rwBuf(MemManager::GetPageSize(), 0, fd, false);
+  
+  coypu::msg::CoinCache gCC;
+  gCC.set_origseqno(2);
+  gCC.set_seconds(3);
+  gCC.set_milliseconds(4);
+  gCC.set_high24(100.00);
+  gCC.set_low24(90.000);
+  gCC.set_vol24(120.00);
+  gCC.set_open(99.00);
+  gCC.set_last(101.00);
+
+  //ASSERT_TRUE(gCC.SerializeToZeroCopyStream(&zOutput));
+
+  char key[32];
+  
+  LogZeroCopyOutputStream<stream_type> zOutput(&rwBuf);
+  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+  for (int i = 0; i < 32; ++i) {
+	 snprintf(key, 32, "foo_%d", i);
+	 gCC.set_key(key);
+	 gCC.set_seqno(i);
+	 size_t s = gCC.ByteSizeLong();
+	 ASSERT_TRUE(gCC.IsInitialized());
+	 ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
+  }
+
+  LogZeroCopyInputStream<stream_type> zInput(&rwBuf);
+  google::protobuf::io::CodedInputStream coded_input(&zInput);
+  for (int i = 0; i < 32; ++i) {
+	 coypu::msg::CoinCache gCC2;
+	 ASSERT_TRUE(gCC2.ParseFromCodedStream(&coded_input));
+	 ASSERT_TRUE(coded_input.ConsumedEntireMessage());
+	 
+	 snprintf(key, 32, "foo_%d", i);
+
+	 ASSERT_EQ(key, gCC2.key());
+	 ASSERT_EQ(i, gCC2.seqno());
+	 ASSERT_EQ(gCC.origseqno(), gCC2.origseqno());
+	 ASSERT_EQ(gCC.seconds(), gCC2.seconds());
+	 ASSERT_EQ(gCC.milliseconds(), gCC2.milliseconds());
+	 ASSERT_EQ(gCC.high24(), gCC2.high24());
+	 ASSERT_EQ(gCC.low24(), gCC2.low24());
+	 ASSERT_EQ(gCC.vol24(), gCC2.vol24());
+	 ASSERT_EQ(gCC.open(), gCC2.open());
+	 ASSERT_EQ(gCC.last(), gCC2.last());
+  }
+  
+  ASSERT_NO_THROW(FileUtil::Close(fd));
+  ASSERT_NO_THROW(FileUtil::Remove(buf));
 }
 

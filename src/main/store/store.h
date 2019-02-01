@@ -46,7 +46,7 @@ namespace coypu {
           }
 
           return 0; // can overflow
-        }
+        }		  
 
         int Readv (int fd, std::function <int(int, const struct iovec *, int)> &cb) {
           if (_readOnly) return -1; // could have static coypu errno
@@ -74,6 +74,28 @@ namespace coypu {
 
 		  void SetAllocateCB (std::function<void(char *, off64_t)> &allocate_cb) {
 			 _allocate_cb = allocate_cb;
+		  }
+
+		  // For use with google buf
+		  int ZeroCopyNext (void **data, int *len) {
+			 if (_readOnly) return -1;
+
+			 if (!_dataPage.first || _dataPage.second == _pageSize) {
+				int r = AllocatePage();
+				if (r != 0) return r;
+			 }
+
+			 *len = _pageSize - _dataPage.second;
+			 *data = &(_dataPage.first[_dataPage.second]);
+			 _dataPage.second = _pageSize; // assume all used
+          
+          return 0;
+        }
+
+		  bool Backup (int len) {
+			 if (len > _dataPage.second) return false;
+			 _dataPage.second -= len; // backup
+			 return true;
 		  }
 
       private:
@@ -187,6 +209,18 @@ namespace coypu {
               (offset <= (_dataPage.second + _pageSize))) {
                 d = _dataPage.first[offset-_dataPage.second];
             return true;
+          }
+          return false;
+        }
+
+		  bool ZeroCopyNextPeak (uint64_t offset, const void **data, int *len) {
+			 if (!_dataPage.first) return false;
+
+          if ((offset >= _dataPage.second) &&
+              (offset <= (_dataPage.second + _pageSize))) {
+				*data = &_dataPage.first[offset-_dataPage.second];
+				*len = _pageSize - (offset-_dataPage.second);
+				return true;
           }
           return false;
         }
@@ -533,6 +567,17 @@ namespace coypu {
           return _maxSize;
         }
 
+		  int ZeroCopyWriteNext (void **data, int *len) {
+			 int i = _writeBuf.ZeroCopyNext(data, len);
+			 if (i == 0) _available += *len;
+			 return 0;
+		  }
+
+		  void ZeroCopyWriteBackup (int len) {
+			 _writeBuf.Backup(len);
+			 _available -= len;
+		  }
+
         int Push (const char *data, offset_type len) {
           int r = _writeBuf.Push(data,len);
           if (r == 0) _available += len;
@@ -553,6 +598,14 @@ namespace coypu {
 
           return page ? page->second->Peak(offset, d) : false;
         }
+
+		  bool ZeroCopyReadNext (offset_type offset, const void **data, int *len) {
+			 typename read_cache_type::read_cache_type page;
+			 if (_readCache.PeakPage(offset, page)) return false;
+          if (offset >= _available) return false;
+          return page ? page->second->ZeroCopyNextPeak(offset, data,len) : false;
+        }
+
 
 		  bool Unmask (offset_type start_offset, offset_type len, const char *mask, int maskLen) {
 			 page_offset_type startPage = start_offset / _pageSize;
