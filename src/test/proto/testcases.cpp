@@ -89,7 +89,8 @@ TEST(ProtoTest, Test2)
   
   LogZeroCopyOutputStream<stream_type> zOutput(&rwBuf);
   google::protobuf::io::CodedOutputStream coded_output(&zOutput);
-  for (int i = 0; i < 32; ++i) {
+  int msgCount = 1024;
+  for (int i = 0; i < msgCount; ++i) {
 	 ::snprintf(key, 32, "foo_%d", i);
 	 gCC.set_key(key);
 	 gCC.set_seqno(i);
@@ -103,7 +104,7 @@ TEST(ProtoTest, Test2)
 
   LogZeroCopyInputStream<stream_type> zInput(&rwBuf);
   google::protobuf::io::CodedInputStream coded_input(&zInput);
-  for (int i = 0; i < 32; ++i) {
+  for (int i = 0; i < msgCount; ++i) {
 	 coypu::msg::CoinCache gCC2;
 	 uint32_t size;
 	 ASSERT_TRUE(coded_input.ReadVarint32(&size));
@@ -112,7 +113,6 @@ TEST(ProtoTest, Test2)
 		coded_input.PushLimit(size);
 	 
 	 ASSERT_TRUE(gCC2.MergeFromCodedStream(&coded_input));
-
 		 
 	 ASSERT_TRUE(coded_input.ConsumedEntireMessage());
 	 coded_input.PopLimit(limit);
