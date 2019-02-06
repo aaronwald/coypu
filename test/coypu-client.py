@@ -48,7 +48,7 @@ class Display:
         self.row_product_map = {}
         self.seq_no = 0
         self.selected_row = 0
-        
+       
         return self
 
     def __exit__(self, *args):
@@ -62,7 +62,8 @@ class Display:
         product = product.replace("-", "/", 1)
 
         if product not in self.products:
-            self.products[product] = { 'y': self.last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
+            self.products[product] = { 'y': self.last_y, 'last_bid_qty' : 0.0, 'last_ask_qty' : 0.0,
+                                       'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
             self.products[product]['last_color'] = curses.color_pair(3)
             self.row_product_map[self.last_y] = product
             self.last_y = self.last_y + 1
@@ -131,13 +132,13 @@ class Display:
 
     def blotter_refresh(self):
         if self.selected_row >= self.height-1:
-            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,min(self.width-1, 120))
+            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,self.width-1)
         else:
-            self.blotter_pad.refresh(0,0,0,0,self.height-1,min(self.width-1,120))
+            self.blotter_pad.refresh(0,0,0,0,self.height-1,self.width-1)
         
     def render (self, doc):
         self.seq_no = self.seq_no + 1
-        self.blotter_pad.addstr(0,self.width-10, "{:d}".format(self.seq_no))
+#        self.blotter_pad.addstr(0,self.width-10, "{:d}".format(self.seq_no))
 
         l = doc.split(' ')
         if l[0] == "Trade":
