@@ -29,13 +29,13 @@ class Display:
 
     def __enter__(self):
         self.stdscr = curses.initscr()
+        self.blotter_pad = curses.newpad(999,120)
         curses.start_color()
         curses.noecho()
         curses.cbreak()
         curses.curs_set(0)
-        self.stdscr.keypad(1)
-        self.stdscr.refresh()
-        self.stdscr.nodelay(1)
+        self.blotter_pad.keypad(1)
+        self.blotter_pad.nodelay(1)
 
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
@@ -53,7 +53,7 @@ class Display:
 
     def __exit__(self, *args):
         curses.nocbreak()
-        self.stdscr.keypad(0)
+        self.blotter_pad.keypad(0)
         curses.echo()
         curses.endwin()
 
@@ -71,7 +71,7 @@ class Display:
 
     def draw_line (self, product, force_clear=False):
         y = self.products[product]['y']
-        height,width = self.stdscr.getmaxyx()
+        height,width = self.blotter_pad.getmaxyx()
         if y >= height-1:
             return
         bid_qty = self.products[product]["last_bid_qty"]
@@ -84,34 +84,38 @@ class Display:
         if force_clear==False and y == self.selected_row:
             atts = curses.color_pair(4) | curses.A_REVERSE
     
-        self.stdscr.addstr(y, 0, product, atts)
-        self.stdscr.clrtoeol()
+        self.blotter_pad.addstr(y, 0, product, atts)
+        self.blotter_pad.clrtoeol()
     
         f = "{:12.4f}".format(bid_qty)
-        self.stdscr.addstr(y, 15, f)
+        self.blotter_pad.addstr(y, 15, f)
     
         if bid_px > ask_px:
             f = "{:14.7f}".format(bid_px)
-            self.stdscr.addstr(y, 28, f, curses.color_pair(4))
+            self.blotter_pad.addstr(y, 28, f, curses.color_pair(4))
             
             f = "x {:14.7f}".format(ask_px)
-            self.stdscr.addstr(y, 43, f, curses.color_pair(4))
+            self.blotter_pad.addstr(y, 43, f, curses.color_pair(4))
         else: 
             f = "{:14.7f}".format(bid_px)
-            self.stdscr.addstr(y, 28, f)
+            self.blotter_pad.addstr(y, 28, f)
             
             f = "x {:14.7f}".format(ask_px)
-            self.stdscr.addstr(y, 43, f)
+            self.blotter_pad.addstr(y, 43, f)
         
         
         f = "{:12.4f}".format(ask_qty)
-        self.stdscr.addstr(y, 60, f)
+        self.blotter_pad.addstr(y, 60, f)
         
         f = "{:14.8f}".format(last)
-        self.stdscr.addstr(y, 100, f, self.products[product]['last_color'])
+        self.blotter_pad.addstr(y, 100, f, self.products[product]['last_color'])
 
         f = "({:14.8f})".format(ask_px-bid_px)
-        self.stdscr.addstr(y, 80, f)
+        self.blotter_pad.addstr(y, 80, f)
+
+    def redraw_screen (self):
+        for x in self.products:
+            self.draw_line(x)
 
     def sort_lines (self, reversed):
         row_product_map = {}
@@ -124,12 +128,17 @@ class Display:
             self.draw_line(x)
 
         return row_product_map
-            
+
+    def blotter_refresh(self):
+        if self.selected_row >= self.height-1:
+            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,120)
+        else:
+            self.blotter_pad.refresh(0,0,0,0,self.height-1,120)
         
     def render (self, doc):
         self.seq_no = self.seq_no + 1
         try:
-            self.stdscr.addstr(self.height-1,0, "{:d}".format(self.seq_no))
+            self.blotter_pad.addstr(self.height-1,0, "{:d}".format(self.seq_no))
         except Exception as e:
             pass
         
@@ -141,6 +150,8 @@ class Display:
             self.products[product]['vol'] = l[2]
             self.products[product]['last'] = float(l[3])
             self.draw_line(product)
+            self.blotter_refresh()
+            
         elif l[0] == "Tick":
             product, last_y = self.init_product(product=l[1], source=l[6])
             
@@ -159,14 +170,12 @@ class Display:
                 self.products[product]['last_color'] = curses.color_pair(2)
 
             self.draw_line(product)
-                            
-            
-        self.stdscr.refresh()
+            self.blotter_refresh()
 
 
     async def get_ch(self):
         while True:
-            char = await self.loop.run_in_executor(None, self.stdscr.getch)
+            char = await self.loop.run_in_executor(None, self.blotter_pad.getch)
             try:
                 if char == ord('q'):
                     loop.stop()
@@ -179,27 +188,32 @@ class Display:
                         self.draw_line(self.row_product_map[self.selected_row], True)
                         self.selected_row += 1
                         self.draw_line(self.row_product_map[self.selected_row])
+
+                        self.blotter_refresh()
                 elif char == curses.KEY_UP:
                     if self.selected_row > 0:
                         self.draw_line(self.row_product_map[self.selected_row], True)
                         self.selected_row -= 1
                         self.draw_line(self.row_product_map[self.selected_row])
+                        self.blotter_refresh()
                 elif char == curses.KEY_PPAGE:
                     self.draw_line(self.row_product_map[self.selected_row], True)
                     self.selected_row = 0
                     self.draw_line(self.row_product_map[self.selected_row])                
+                    self.blotter_refresh()
                 elif char == curses.KEY_NPAGE:
                     self.draw_line(self.row_product_map[self.selected_row], True)
                     self.selected_row = self.last_y-1
                     if self.selected_row in self.row_product_map:
                         self.draw_line(self.row_product_map[self.selected_row])
+                    self.blotter_refresh()
                 elif char == curses.KEY_RESIZE:
                     oldheight = self.height-1
                     self.height,self.width = self.stdscr.getmaxyx()
 
-                    self.stdscr.addstr(oldheight,0,"                      ")
-                    self.stdscr.clear()
-                    self.stdscr.refresh()
+                    self.blotter_pad.clear()
+                    self.redraw_screen()
+                    self.blotter_refresh()
             except Exception as e:
                 print(e)
 
