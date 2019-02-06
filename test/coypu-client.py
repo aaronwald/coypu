@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
-import curses
+import curses, curses.panel
 from websockets import connect
 import json
 import sys
@@ -26,6 +26,14 @@ async def coypu(display, host, port):
 class Display:
     def __init__ (self, loop):
         self.loop = loop
+        self.COL_PRODUCT = 0
+        self.COL_BID_QTY = 1
+        self.COL_BID_PX = 2
+        self.COL_ASK_PX = 3
+        self.COL_ASK_QTY = 4
+        self.COL_SPREAD = 5
+        self.COL_LAST = 6
+        
 
     def __enter__(self):
         self.stdscr = curses.initscr()
@@ -73,7 +81,7 @@ class Display:
         return product, self.last_y
 
     def compute_atts(self, sc, check, do_bold, force_clear, y):
-        atts = 0
+        atts = curses.A_DIM
         batts = curses.A_BOLD
         if force_clear==False and y == self.selected_row:
             atts = curses.A_REVERSE
@@ -97,11 +105,13 @@ class Display:
         do_bold = self.products[product]['selected']
         ca = lambda col : self.compute_atts(sc, col, do_bold, force_clear, y)
         
-        self.blotter_pad.addstr(y, 0, "{:>11s}".format(product), ca(0))
+        self.blotter_pad.addstr(y, 0, '>' if do_bold else ' ', curses.A_BOLD if do_bold else 0)
         self.blotter_pad.clrtoeol()
+        self.blotter_pad.addstr(y, 1, "{:>10s}".format(product), ca(self.COL_PRODUCT))
+
     
         f = "{:12.4f}".format(bid_qty)
-        self.blotter_pad.addstr(y, 15, f, ca(1))
+        self.blotter_pad.addstr(y, 15, f, ca(self.COL_BID_QTY))
 
         self.blotter_pad.addstr(y, 43, 'x')
         
@@ -113,20 +123,19 @@ class Display:
             self.blotter_pad.addstr(y, 45, f, curses.color_pair(4))
         else:
             f = "{:14.7f}".format(bid_px)
-            self.blotter_pad.addstr(y, 28, f, ca(2))
+            self.blotter_pad.addstr(y, 28, f, ca(self.COL_BID_PX))
             
             f = "{:14.7f}".format(ask_px)
-            self.blotter_pad.addstr(y, 45, f, ca(3))
-        
+            self.blotter_pad.addstr(y, 45, f, ca(self.COL_ASK_PX))
         
         f = "{:12.4f}".format(ask_qty)
-        self.blotter_pad.addstr(y, 60, f, ca(4))
+        self.blotter_pad.addstr(y, 60, f, ca(self.COL_ASK_QTY))
 
         f = "({:14.8f})".format(ask_px-bid_px)
-        self.blotter_pad.addstr(y, 73, f, ca(5))
+        self.blotter_pad.addstr(y, 73, f, ca(self.COL_SPREAD))
 
         f = "{:14.8f}".format(last)
-        self.blotter_pad.addstr(y, 90, f, ca(6))
+        self.blotter_pad.addstr(y, 90, f, self.products[product]['last_color'] | ca(self.COL_LAST))
 
 
     def redraw_screen (self):
@@ -191,6 +200,8 @@ class Display:
             try:
                 if char == ord('q'):
                     loop.stop()
+                elif char == ord('b'):
+                    pass
                 elif char == ord('h'):
                     self.row_product_map = self.sort_lines(False)
                 elif char == ord('H'):
@@ -203,7 +214,6 @@ class Display:
                         self.draw_line(self.row_product_map[self.selected_row], True)
                         self.selected_row += 1
                         self.draw_line(self.row_product_map[self.selected_row])
-
                         self.blotter_refresh()
                 elif char == curses.KEY_UP:
                     if self.selected_row > 0:
