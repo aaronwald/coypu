@@ -850,7 +850,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				gCC.set_low24(cc._low24);
 				gCC.set_vol24(cc._vol24);
 				gCC.set_last(cc._last);
-				std::cout << gCC.ByteSize() << std::endl;
+				//std::cout << gCC.ByteSize() << std::endl;
 				// gcc.SerializeWithCachedSizes
 				std::string outStr;
 				if (gCC.SerializeToString(&outStr)) {

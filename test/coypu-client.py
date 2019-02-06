@@ -40,12 +40,15 @@ class Display:
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)
         self.height, self.width = self.stdscr.getmaxyx()
 
         self.last_y = 0
         self.products = {}
+        self.row_product_map = {}
         self.seq_no = 0
-
+        self.selected_row = 0
+        
         return self
 
     def __exit__(self, *args):
@@ -54,11 +57,74 @@ class Display:
         curses.echo()
         curses.endwin()
 
-    def init_product (self, product):
-        self.products[product] = { 'y': self.last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
-        self.products[product]['last_color'] = curses.color_pair(3)
-        self.last_y = self.last_y + 1
+    def init_product (self, product, source):
+        product = "%s.%s" % (product, source)
+        product = product.replace("-", "/", 1)
+
+        if product not in self.products:
+            self.products[product] = { 'y': self.last_y, 'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
+            self.products[product]['last_color'] = curses.color_pair(3)
+            self.row_product_map[self.last_y] = product
+            self.last_y = self.last_y + 1
+
+        return product, self.last_y
+
+    def draw_line (self, product, force_clear=False):
+        y = self.products[product]['y']
+        height,width = self.stdscr.getmaxyx()
+        if y >= height-1:
+            return
+        bid_qty = self.products[product]["last_bid_qty"]
+        ask_qty = self.products[product]["last_ask_qty"]
+        bid_px = self.products[product]["last_bid"]
+        ask_px = self.products[product]["last_ask"]
+        last = self.products[product]["prev"]
+
+        atts = 0
+        if force_clear==False and y == self.selected_row:
+            atts = curses.color_pair(4) | curses.A_REVERSE
+    
+        self.stdscr.addstr(y, 0, product, atts)
+        self.stdscr.clrtoeol()
+    
+        f = "{:12.4f}".format(bid_qty)
+        self.stdscr.addstr(y, 15, f)
+    
+        if bid_px > ask_px:
+            f = "{:14.7f}".format(bid_px)
+            self.stdscr.addstr(y, 28, f, curses.color_pair(4))
+            
+            f = "x {:14.7f}".format(ask_px)
+            self.stdscr.addstr(y, 43, f, curses.color_pair(4))
+        else: 
+            f = "{:14.7f}".format(bid_px)
+            self.stdscr.addstr(y, 28, f)
+            
+            f = "x {:14.7f}".format(ask_px)
+            self.stdscr.addstr(y, 43, f)
         
+        
+        f = "{:12.4f}".format(ask_qty)
+        self.stdscr.addstr(y, 60, f)
+        
+        f = "{:14.8f}".format(last)
+        self.stdscr.addstr(y, 100, f, self.products[product]['last_color'])
+
+        f = "({:14.8f})".format(ask_px-bid_px)
+        self.stdscr.addstr(y, 80, f)
+
+    def sort_lines (self, reversed):
+        row_product_map = {}
+    
+        new_y = 0
+        for x in sorted(self.products, reverse=reversed):
+            self.products[x]['y'] = new_y
+            row_product_map[new_y] = x
+            new_y +=1
+            self.draw_line(x)
+
+        return row_product_map
+            
         
     def render (self, doc):
         self.seq_no = self.seq_no + 1
@@ -70,62 +136,31 @@ class Display:
 
         l = doc.split(' ')
         if l[0] == "Trade":
-            product = l[1]
-            if product not in self.products:
-                self.init_product(product)
+            product, last_y = self.init_product(product=l[1], source=l[6])
                         
             self.products[product]['vol'] = l[2]
             self.products[product]['last'] = float(l[3])
+            self.draw_line(product)
         elif l[0] == "Tick":
-            product = l[1]
-            if product not in self.products:
-                self.init_product(product)
-                        
-            y = self.products[product]['y']
-            last_bid = self.products[product]['last_bid']
-            last_ask = self.products[product]['last_ask']
+            product, last_y = self.init_product(product=l[1], source=l[6])
+            
             last = self.products[product]['last']
             prev = self.products[product]['prev']
-            self.stdscr.addstr(y, 0, product)
-            self.stdscr.clrtoeol()
-            try:
-                bid_qty = float(int(l[2]))/100000000.0
-                bid_px = float(int(l[3]))/100000000.0
-                ask_px = float(int(l[4]))/100000000.0
-                ask_qty = float(int(l[5]))/100000000.0
-                    
-                f = "{:12.4f}".format(bid_qty)
-                self.stdscr.addstr(y, 15, f)
 
-                f = "{:12.6f}".format(bid_px)
-                self.stdscr.addstr(y, 30, f)
+            self.products[product]['prev'] = last
+            self.products[product]['last_bid'] = float(int(l[3]))/100000000.0
+            self.products[product]['last_ask'] = float(int(l[4]))/100000000.0
+            self.products[product]['last_bid_qty'] = float(int(l[2]))/100000000.0
+            self.products[product]['last_ask_qty'] = float(int(l[5]))/100000000.0
+            
+            if last < prev:
+                self.products[product]['last_color'] = curses.color_pair(1)
+            elif last > prev:
+                self.products[product]['last_color'] = curses.color_pair(2)
 
-                f = "x {:12.6f}".format(ask_px)
-                self.stdscr.addstr(y, 43, f)
-                    
-                f = "{:12.4f}".format(ask_qty)
-                self.stdscr.addstr(y, 60, f)
-
-                f = "({:14.8f})".format(ask_px-bid_px)
-                self.stdscr.addstr(y, 80, f)
-                
-                f = "{:14.8f}".format(last)
-                if last == prev:
-                    self.stdscr.addstr(y, 100, f, self.products[product]['last_color'])
-                elif last < prev:
-                    self.stdscr.addstr(y, 100, f, curses.color_pair(1))
-                    self.products[product]['prev'] = last
-                    self.products[product]['last_color'] = curses.color_pair(1)
-                else:
-                    self.stdscr.addstr(y, 100, f, curses.color_pair(2))
-                    self.products[product]['prev'] = last
-                    self.products[product]['last_color'] = curses.color_pair(2)
-                                                
-                self.products[product]['last_bid'] = bid_px
-                self.products[product]['last_ask'] = ask_px
-            except Exception as e:
-                self.stdscr.addstr(20, 0, "exception" + str(e))
-
+            self.draw_line(product)
+                            
+            
         self.stdscr.refresh()
 
 
@@ -135,6 +170,29 @@ class Display:
             try:
                 if char == ord('q'):
                     loop.stop()
+                elif char == ord('h'):
+                    self.row_product_map = self.sort_lines(False)
+                elif char == ord('H'):
+                    self.row_product_map = self.sort_lines(True)
+                elif char == curses.KEY_DOWN:
+                    if self.selected_row+1 in self.row_product_map:
+                        self.draw_line(self.row_product_map[self.selected_row], True)
+                        self.selected_row += 1
+                        self.draw_line(self.row_product_map[self.selected_row])
+                elif char == curses.KEY_UP:
+                    if self.selected_row > 0:
+                        self.draw_line(self.row_product_map[self.selected_row], True)
+                        self.selected_row -= 1
+                        self.draw_line(self.row_product_map[self.selected_row])
+                elif char == curses.KEY_PPAGE:
+                    self.draw_line(self.row_product_map[self.selected_row], True)
+                    self.selected_row = 0
+                    self.draw_line(self.row_product_map[self.selected_row])                
+                elif char == curses.KEY_NPAGE:
+                    self.draw_line(self.row_product_map[self.selected_row], True)
+                    self.selected_row = self.last_y-1
+                    if self.selected_row in self.row_product_map:
+                        self.draw_line(self.row_product_map[self.selected_row])
                 elif char == curses.KEY_RESIZE:
                     oldheight = self.height-1
                     self.height,self.width = self.stdscr.getmaxyx()

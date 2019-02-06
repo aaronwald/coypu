@@ -39,7 +39,7 @@ class outbuf : public std::streambuf {
 protected:
   virtual std::streamsize xsputn(const char_type* s, std::streamsize n) override
   {
-	 std::cout << n << std::endl;
+	 //	 std::cout << n << std::endl;
   //	 return callback_(s, n, user_data_); // returns the number of characters successfully written.
 		return n;
     };
@@ -85,8 +85,7 @@ TEST(ProtoTest, Test2)
 
   //ASSERT_TRUE(gCC.SerializeToZeroCopyStream(&zOutput));
 
-  char key[32];
-  
+  char key[32] = {};
   LogZeroCopyOutputStream<stream_type> zOutput(&rwBuf);
   google::protobuf::io::CodedOutputStream coded_output(&zOutput);
   int msgCount = 1024;
@@ -134,4 +133,3 @@ TEST(ProtoTest, Test2)
   ASSERT_NO_THROW(FileUtil::Close(fd));
   ASSERT_NO_THROW(FileUtil::Remove(buf));
 }
-

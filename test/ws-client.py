@@ -29,7 +29,9 @@ def do_websocket(ws):
 
 def draw_line (stdscr, products, product, selected_row):
     y = products[product]['y']
-    
+    height,width = stdscr.getmaxyx()
+    if y >= height-1:
+        return
     bid_qty = products[product]["last_bid_qty"]
     ask_qty = products[product]["last_ask_qty"]
     bid_px = products[product]["last_bid"]
