@@ -35,7 +35,7 @@ class Display:
         curses.cbreak()
         curses.curs_set(0)
         self.blotter_pad.keypad(1)
-        self.blotter_pad.nodelay(1)
+        self.blotter_pad.nodelay(True)
 
         curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
@@ -48,6 +48,7 @@ class Display:
         self.row_product_map = {}
         self.seq_no = 0
         self.selected_row = 0
+        self.selected_col = 0
        
         return self
 
@@ -63,6 +64,7 @@ class Display:
 
         if product not in self.products:
             self.products[product] = { 'y': self.last_y, 'last_bid_qty' : 0.0, 'last_ask_qty' : 0.0,
+                                       'selected' : False,
                                        'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
             self.products[product]['last_color'] = curses.color_pair(3)
             self.row_product_map[self.last_y] = product
@@ -70,6 +72,16 @@ class Display:
 
         return product, self.last_y
 
+    def compute_atts(self, sc, check, do_bold, force_clear, y):
+        atts = 0
+        batts = curses.A_BOLD
+        if force_clear==False and y == self.selected_row:
+            atts = curses.A_REVERSE
+        elif do_bold:
+            atts = batts
+
+        return atts if sc == check else batts if do_bold else 0
+        
     def draw_line (self, product, force_clear=False):
         y = self.products[product]['y']
         height,width = self.blotter_pad.getmaxyx()
@@ -81,38 +93,41 @@ class Display:
         ask_px = self.products[product]["last_ask"]
         last = self.products[product]["prev"]
 
-        atts = 0
-        if force_clear==False and y == self.selected_row:
-            atts = curses.color_pair(4) | curses.A_REVERSE
-    
-        self.blotter_pad.addstr(y, 0, product, atts)
+        sc = self.selected_col
+        do_bold = self.products[product]['selected']
+        ca = lambda col : self.compute_atts(sc, col, do_bold, force_clear, y)
+        
+        self.blotter_pad.addstr(y, 0, "{:>11s}".format(product), ca(0))
         self.blotter_pad.clrtoeol()
     
         f = "{:12.4f}".format(bid_qty)
-        self.blotter_pad.addstr(y, 15, f)
-    
+        self.blotter_pad.addstr(y, 15, f, ca(1))
+
+        self.blotter_pad.addstr(y, 43, 'x')
+        
         if bid_px > ask_px:
             f = "{:14.7f}".format(bid_px)
             self.blotter_pad.addstr(y, 28, f, curses.color_pair(4))
             
-            f = "x {:14.7f}".format(ask_px)
-            self.blotter_pad.addstr(y, 43, f, curses.color_pair(4))
-        else: 
+            f = "{:14.7f}".format(ask_px)
+            self.blotter_pad.addstr(y, 45, f, curses.color_pair(4))
+        else:
             f = "{:14.7f}".format(bid_px)
-            self.blotter_pad.addstr(y, 28, f)
+            self.blotter_pad.addstr(y, 28, f, ca(2))
             
-            f = "x {:14.7f}".format(ask_px)
-            self.blotter_pad.addstr(y, 43, f)
+            f = "{:14.7f}".format(ask_px)
+            self.blotter_pad.addstr(y, 45, f, ca(3))
         
         
         f = "{:12.4f}".format(ask_qty)
-        self.blotter_pad.addstr(y, 60, f)
-        
-        f = "{:14.8f}".format(last)
-        self.blotter_pad.addstr(y, 100, f, self.products[product]['last_color'])
+        self.blotter_pad.addstr(y, 60, f, ca(4))
 
         f = "({:14.8f})".format(ask_px-bid_px)
-        self.blotter_pad.addstr(y, 80, f)
+        self.blotter_pad.addstr(y, 73, f, ca(5))
+
+        f = "{:14.8f}".format(last)
+        self.blotter_pad.addstr(y, 90, f, ca(6))
+
 
     def redraw_screen (self):
         for x in self.products:
@@ -132,7 +147,7 @@ class Display:
 
     def blotter_refresh(self):
         if self.selected_row >= self.height-1:
-            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,self.width-1)
+            self.blotter_pad.refresh(self.selected_row-self.height+1,0,0,0,self.height-1,self.width-1)
         else:
             self.blotter_pad.refresh(0,0,0,0,self.height-1,self.width-1)
         
@@ -180,6 +195,9 @@ class Display:
                     self.row_product_map = self.sort_lines(False)
                 elif char == ord('H'):
                     self.row_product_map = self.sort_lines(True)
+                elif char == ord(' '):
+                    self.products[self.row_product_map[self.selected_row]]['selected'] = not self.products[self.row_product_map[self.selected_row]]['selected']
+                    self.draw_line(self.row_product_map[self.selected_row])
                 elif char == curses.KEY_DOWN:
                     if self.selected_row+1 in self.row_product_map:
                         self.draw_line(self.row_product_map[self.selected_row], True)
@@ -198,6 +216,14 @@ class Display:
                     self.selected_row = 0
                     self.draw_line(self.row_product_map[self.selected_row])                
                     self.blotter_refresh()
+                elif char == curses.KEY_RIGHT:
+                    if self.selected_col < 6:
+                        self.selected_col += 1
+                        self.draw_line(self.row_product_map[self.selected_row])
+                elif char == curses.KEY_LEFT:
+                    if self.selected_col > 0:
+                        self.selected_col -= 1
+                        self.draw_line(self.row_product_map[self.selected_row])
                 elif char == curses.KEY_NPAGE:
                     self.draw_line(self.row_product_map[self.selected_row], True)
                     self.selected_row = self.last_y-1
