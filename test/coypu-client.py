@@ -131,17 +131,13 @@ class Display:
 
     def blotter_refresh(self):
         if self.selected_row >= self.height-1:
-            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,120)
+            self.blotter_pad.refresh(self.selected_row-self.height,0,0,0,self.height-1,min(self.width-1, 120))
         else:
-            self.blotter_pad.refresh(0,0,0,0,self.height-1,120)
+            self.blotter_pad.refresh(0,0,0,0,self.height-1,min(self.width-1,120))
         
     def render (self, doc):
         self.seq_no = self.seq_no + 1
-        try:
-            self.blotter_pad.addstr(self.height-1,0, "{:d}".format(self.seq_no))
-        except Exception as e:
-            pass
-        
+        self.blotter_pad.addstr(0,self.width-10, "{:d}".format(self.seq_no))
 
         l = doc.split(' ')
         if l[0] == "Trade":
