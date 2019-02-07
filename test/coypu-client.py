@@ -6,26 +6,34 @@ from websockets import connect
 import json
 import sys
 import logging
+import coincache_pb2 as cc
 
-logger = logging.getLogger('websockets')
-logger.setLevel(logging.INFO)
-logger.addHandler(logging.FileHandler("client.log"))
+h = logging.FileHandler("client.log")
 
+for l in ['webosckets', 'asyncio']:
+    logger = logging.getLogger(l)
+    logger.setLevel(logging.INFO)
+    logger.addHandler(h)
 
-async def coypu(display, host, port):
+async def coypu(display, host, port, offset):
     async with connect("ws://%s:%d/websocket" % (host, port), ping_interval=600, ping_timeout=10) as cws:
-        await cws.send(json.dumps({"cmd": "mark"}))
+        if offset == -1:
+            await cws.send(json.dumps({"cmd": "mark"}))
+        else:
+            await cws.send(json.dumps({"cmd": "mark", "offset" : 0}))
         while True:
             msg = await cws.recv()
             try:
                 display.render(msg)
                 # await ?
             except Exception as e:
-                print(e)
+                logging.getLogger('websockets').error(e)
     
 class Display:
-    def __init__ (self, loop):
+    def __init__ (self, loop, snap_host, snap_port):
         self.loop = loop
+        self.snap_host = snap_host
+        self.snap_port = snap_port
         self.COL_PRODUCT = 0
         self.COL_BID_QTY = 1
         self.COL_BID_PX = 2
@@ -33,11 +41,12 @@ class Display:
         self.COL_ASK_QTY = 4
         self.COL_SPREAD = 5
         self.COL_LAST = 6
-        
+        self.COL_UPDATES = 7
+        self.COL_TOT_QTY = 8
 
     def __enter__(self):
         self.stdscr = curses.initscr()
-        self.blotter_pad = curses.newpad(999,120)
+        self.blotter_pad = curses.newpad(999,140)
         curses.start_color()
         curses.noecho()
         curses.cbreak()
@@ -45,18 +54,21 @@ class Display:
         self.blotter_pad.keypad(1)
         self.blotter_pad.nodelay(True)
 
-        curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(1, curses.COLOR_RED  , curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
-        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)
+        curses.init_pair(4, curses.COLOR_RED  , curses.COLOR_WHITE)
+        curses.init_pair(5, curses.COLOR_CYAN , curses.COLOR_BLACK) # header
         self.height, self.width = self.stdscr.getmaxyx()
 
-        self.last_y = 0
+        self.last_y = 1
         self.products = {}
         self.row_product_map = {}
         self.seq_no = 0
-        self.selected_row = 0
+        self.selected_row = 1
         self.selected_col = 0
+        self.show_book = False
+        self.draw_header()
        
         return self
 
@@ -72,7 +84,7 @@ class Display:
 
         if product not in self.products:
             self.products[product] = { 'y': self.last_y, 'last_bid_qty' : 0.0, 'last_ask_qty' : 0.0,
-                                       'selected' : False,
+                                       'selected' : False, 'updates' : 0, 'tot_qty' : 0.0,
                                        'last_bid': 0.0, 'last_ask':0.0, 'vol': '-', 'last':0.0, 'prev':0.0 }
             self.products[product]['last_color'] = curses.color_pair(3)
             self.row_product_map[self.last_y] = product
@@ -89,7 +101,28 @@ class Display:
             atts = batts
 
         return atts if sc == check else batts if do_bold else 0
-        
+
+    def draw_header(self):
+        header_row = 0
+
+        win = self.blotter_pad
+        cols = [
+            [1, 10, "Ticker"],
+            [15, 12, "Bid Qty"],
+            [28, 14, "Bid Size"],
+            [45, 14, "Ask Size"],
+            [60, 12, "Ask Qty"],
+            [73, 16, "Spread"],
+            [90, 14, "Last"],
+            [105, 8, "Updates"],
+            [114, 14, "Volume"]
+        ]
+
+        for c in cols:
+            x = "{:>" + str(c[1]) + "s}"
+
+            win.addstr(header_row, c[0], x.format(c[2]), curses.color_pair(5) | curses.A_BOLD | curses.A_UNDERLINE)
+    
     def draw_line (self, product, force_clear=False):
         y = self.products[product]['y']
         height,width = self.blotter_pad.getmaxyx()
@@ -100,6 +133,8 @@ class Display:
         bid_px = self.products[product]["last_bid"]
         ask_px = self.products[product]["last_ask"]
         last = self.products[product]["prev"]
+        updates = self.products[product]["updates"]
+        tot_qty = self.products[product]["tot_qty"]
 
         sc = self.selected_col
         do_bold = self.products[product]['selected']
@@ -108,7 +143,6 @@ class Display:
         self.blotter_pad.addstr(y, 0, '>' if do_bold else ' ', curses.A_BOLD if do_bold else 0)
         self.blotter_pad.clrtoeol()
         self.blotter_pad.addstr(y, 1, "{:>10s}".format(product), ca(self.COL_PRODUCT))
-
     
         f = "{:12.4f}".format(bid_qty)
         self.blotter_pad.addstr(y, 15, f, ca(self.COL_BID_QTY))
@@ -134,18 +168,24 @@ class Display:
         f = "({:14.8f})".format(ask_px-bid_px)
         self.blotter_pad.addstr(y, 73, f, ca(self.COL_SPREAD))
 
-        f = "{:14.8f}".format(last)
+        f = "{:14.7f}".format(last)
         self.blotter_pad.addstr(y, 90, f, self.products[product]['last_color'] | ca(self.COL_LAST))
 
-
+        f = "{:>8d}".format(updates)
+        self.blotter_pad.addstr(y, 105, f, ca(self.COL_UPDATES))
+        
+        f = "{:14.4f}".format(tot_qty)
+        self.blotter_pad.addstr(y, 114, f, ca(self.COL_TOT_QTY))
+        
     def redraw_screen (self):
+        self.draw_header()
         for x in self.products:
             self.draw_line(x)
 
     def sort_lines (self, reversed):
         row_product_map = {}
     
-        new_y = 0
+        new_y = 1
         for x in sorted(self.products, reverse=reversed):
             self.products[x]['y'] = new_y
             row_product_map[new_y] = x
@@ -170,6 +210,8 @@ class Display:
                         
             self.products[product]['vol'] = l[2]
             self.products[product]['last'] = float(l[3])
+            self.products[product]['updates'] = self.products[product]['updates'] + 1
+            self.products[product]['tot_qty'] = self.products[product]['tot_qty'] + float(l[5])
             self.draw_line(product)
             self.blotter_refresh()
             
@@ -178,7 +220,8 @@ class Display:
             
             last = self.products[product]['last']
             prev = self.products[product]['prev']
-
+            
+            self.products[product]['updates'] = self.products[product]['updates'] + 1
             self.products[product]['prev'] = last
             self.products[product]['last_bid'] = float(int(l[3]))/100000000.0
             self.products[product]['last_ask'] = float(int(l[4]))/100000000.0
@@ -193,6 +236,19 @@ class Display:
             self.draw_line(product)
             self.blotter_refresh()
 
+    async def snap_book(self, product):
+        p = cc.CoinCache()
+        p.key = product
+
+        reader, writer = await asyncio.open_connection(self.snap_host, self.snap_port, loop=self.loop)
+        writer.write(p.SerializeToString())
+
+        data = await reader.read(4) # read 4 bytes
+        print('Received: %d' % len(data))
+
+        print('Close the socket')
+        writer.close()
+
 
     async def get_ch(self):
         while True:
@@ -201,7 +257,20 @@ class Display:
                 if char == ord('q'):
                     loop.stop()
                 elif char == ord('b'):
-                    pass
+                    if not self.show_book:
+                        self.height=1
+                        self.show_book = True
+                        product = self.row_product_map[self.selected_row]
+
+                        f = self.loop.create_task(self.snap_book(product))
+                    else:
+                        self.height,self.width = self.stdscr.getmaxyx()
+                        self.show_book = False
+                        
+                    self.stdscr.clear()
+                    self.stdscr.refresh()
+                    self.blotter_refresh()
+                    
                 elif char == ord('h'):
                     self.row_product_map = self.sort_lines(False)
                 elif char == ord('H'):
@@ -223,11 +292,11 @@ class Display:
                         self.blotter_refresh()
                 elif char == curses.KEY_PPAGE:
                     self.draw_line(self.row_product_map[self.selected_row], True)
-                    self.selected_row = 0
+                    self.selected_row = 1
                     self.draw_line(self.row_product_map[self.selected_row])                
                     self.blotter_refresh()
                 elif char == curses.KEY_RIGHT:
-                    if self.selected_col < 6:
+                    if self.selected_col < 8:
                         self.selected_col += 1
                         self.draw_line(self.row_product_map[self.selected_row])
                 elif char == curses.KEY_LEFT:
@@ -248,7 +317,7 @@ class Display:
                     self.redraw_screen()
                     self.blotter_refresh()
             except Exception as e:
-                print(e)
+                logging.getLogger('websockets').error(e)
 
                     
 if __name__ == '__main__':
@@ -256,6 +325,9 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", help="increase output verbosity", action="store_true")
     parser.add_argument("-p", "--port", help="coypu webservice port", default=8080, type=int)
     parser.add_argument("-w", "--host", help="coypu host", default='localhost', type=str)
+    parser.add_argument("-s", "--snap_port", help="coypu book snap port", default=8088, type=int)
+    parser.add_argument("-t", "--snap_host", help="coypu book snap host", default='localhost', type=str)
+    parser.add_argument("-o", "--offset", help="offset", default=-1, type=int)
     args = parser.parse_args()
 
     if args.verbose:
@@ -264,15 +336,16 @@ if __name__ == '__main__':
         logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO)
         
     loop = asyncio.get_event_loop()
-
-    with Display(loop) as display:
+    
+    with Display(loop, args.snap_host, args.snap_port) as display:
         task1 = loop.create_task(display.get_ch())
-        task2 = loop.create_task(coypu(display, args.host, args.port))
+        task2 = loop.create_task(coypu(display, args.host, args.port, args.offset))
         loop.run_forever()
 
         # cleans up display for some reason
         task1.cancel()
         try:
             loop.run_until_complete(task1)
-        except:
-            pass
+        except Exception as e:
+            logging.getLogger('websockets').error(e)
+

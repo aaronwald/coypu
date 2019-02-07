@@ -42,6 +42,7 @@
 #include "book/level.h"
 #include "util/backtrace.h"
 #include "admin/admin.h"
+#include "protobuf/protomgr.h"
 
 #include "proto/coincache.pb.h"
 
@@ -61,6 +62,7 @@ using namespace coypu::cache;
 using namespace coypu::book;
 using namespace coypu::backtrace;
 using namespace coypu::admin;
+using namespace coypu::protobuf;
 
 extern "C" void processRust(uint32_t);
 
@@ -145,6 +147,7 @@ typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 typedef AdminManager<LogType> AdminManagerType;
+typedef ProtoManager<LogType> ProtoManagerType;
 typedef OpenSSLManager <LogType> SSLType;
 typedef std::function<void(void)> CBType;
 typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
@@ -153,6 +156,7 @@ typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
 const std::string COYPU_DEFAULT_ADMIN_PORT = "9999";
+const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
 
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
@@ -163,6 +167,7 @@ typedef struct CoypuContextS {
 	 _wsManager = std::make_shared<WebSocketManagerType>(wsLogger, _set_write_ws);
 	 _wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, _set_write_ws);
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
+	 _protoManager = std::make_shared<ProtoManagerType>(wsLogger, _set_write_ws);
 	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/");
 
 	 for (int i = 0; i < SOURCE_MAX; ++i) {
@@ -181,6 +186,7 @@ typedef struct CoypuContextS {
   std::shared_ptr <WebSocketManagerType> _wsManager;
   std::shared_ptr <AnonWebSocketManagerType> _wsAnonManager;
   std::shared_ptr <AdminManagerType> _adminManager;
+  std::shared_ptr <ProtoManagerType> _protoManager;
   std::shared_ptr <SSLType> _openSSLMgr;
 
   std::shared_ptr <PublishStreamType> _publishStreamSP;
@@ -390,48 +396,54 @@ void DoServerTest (std::shared_ptr<CoypuContext> contextSP)
   contextSP->_wsManager->Stream(wsFD, "/foo", "localhost", "http://localhost");
 }
 
-void SetupAdmin (std::string &interface, std::shared_ptr<CoypuContext> context, uint16_t port) {
-  std::weak_ptr <CoypuContext> wContextSP = context;
-  coypu::event::callback_type adminAcceptCB = [wContextSP] (int fd) {
+template <typename T>
+void SetupSimpleServer (std::string &interface,
+								const std::shared_ptr<T> &manager,
+								const std::shared_ptr<EventManagerType> &eventMgr,
+								uint16_t port) {
+  std::weak_ptr <T> wManager = manager;
+  std::weak_ptr <EventManagerType> wEventManager = eventMgr;
+  
+  coypu::event::callback_type acceptCB = [wEventManager, wManager] (int fd) {
 	 struct sockaddr_in client_addr= {0};
 	 socklen_t addrlen= sizeof(sockaddr_in);
 	 
 	 // using IP V4
 	 int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
-	 auto context = wContextSP.lock();
+	 auto manager = wManager.lock();
+	 auto eventMgr = wEventManager.lock();
 	 
-	 if (context) {
+	 if (eventMgr && manager) {
 		std::function<int(int,const struct iovec *,int)> rv = [] (int fd, const struct iovec *iov, int count) -> int { return ::readv(fd, iov, count); };
 		std::function<int(int,const struct iovec *,int)> wv = [] (int fd, const struct iovec *iov, int count) -> int { return ::writev(fd, iov, count); };
-		context->_adminManager->Register(clientfd, rv, wv);	
+		manager->Register(clientfd, rv, wv);	
 		
-		std::function<int(int)> readCB = std::bind(&AdminManagerType::Read, context->_adminManager, std::placeholders::_1);
-		std::function<int(int)> writeCB = std::bind(&AdminManagerType::Write, context->_adminManager, std::placeholders::_1);
-		std::function<int(int)> closeCB = [wContextSP] (int fd) {
-		  auto context = wContextSP.lock();
-		  if (context) {
-			 context->_adminManager->Unregister(fd);
+		std::function<int(int)> readCB = std::bind(&T::Read, manager, std::placeholders::_1);
+		std::function<int(int)> writeCB = std::bind(&T::Write, manager, std::placeholders::_1);
+		std::function<int(int)> closeCB = [wManager] (int fd) {
+		  auto manager = wManager.lock();
+		  if (manager) {
+			 manager->Unregister(fd);
 		  }
 		  return 0;
 		};
-		context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+		eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 	 }
 	 
 	 return 0;
   };
 
-  auto contextSP = wContextSP.lock();
-  if (contextSP) {
-	 int adminFD = BindAndListen(contextSP->_consoleLogger, interface, port);
-	 if (adminFD > 0) {
-		if (contextSP->_eventMgr->Register(adminFD, adminAcceptCB, nullptr, nullptr)) {
-		  contextSP->_consoleLogger->perror(errno, "Register");
-		}
-	 } else {
-		contextSP->_consoleLogger->error("Failed to created admin fd");
+  auto consoleLogger = std::make_shared<coypu::SPDLogger>(spdlog::get("console"));
+  int fd = BindAndListen(consoleLogger, interface, port);
+  if (fd > 0) {
+	 if (eventMgr->Register(fd, acceptCB, nullptr, nullptr)) {
+		consoleLogger->perror(errno, "Register");
 	 }
+  } else {
+	 consoleLogger->error("Failed to created fd");
   }
 }
+
 
 void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> &contextSP) {
   	std::string publish_path;
@@ -625,6 +637,8 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 					  const std::vector<std::string> &symbolList,
 					  const std::vector<std::string> &channelList) {
   int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  assert(contextSP);
+  assert(wsFD > 0);
   std::weak_ptr <CoypuContext> wContextSP = contextSP;
 
   if (wsFD < 0) {
@@ -1408,7 +1422,11 @@ int main(int argc, char **argv)
 
 	std::string adminPort;
 	config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
-	SetupAdmin(interface, contextSP, atoi(adminPort.c_str()));
+	SetupSimpleServer<AdminManagerType>(interface, contextSP->_adminManager, contextSP->_eventMgr, atoi(adminPort.c_str()));
+
+	std::string protoPort;
+	config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
+	SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
 	// watch out for threading on loggers
 	std::thread t1(bar, contextSP, std::ref(done));
