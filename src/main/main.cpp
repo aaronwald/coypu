@@ -86,29 +86,29 @@ struct CoinLevel
   uint64_t qty;
   CoinLevel *next, *prev;
 
-	CoinLevel(uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr)
-	{
-	}
+  CoinLevel(uint64_t px, uint64_t qty) : px(px), qty(qty), next(nullptr), prev(nullptr)
+  {
+  }
 
-	void Set(uint64_t px, uint64_t qty)
-	{
-		this->px = px;
-		this->qty = qty;
-	}
+  void Set(uint64_t px, uint64_t qty)
+  {
+	 this->px = px;
+	 this->qty = qty;
+  }
 
-	CoinLevel() : px(UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr)
-	{
-	}
+  CoinLevel() : px(UINT64_MAX), qty(UINT64_MAX), next(nullptr), prev(nullptr)
+  {
+  }
 
-	bool operator()(const CoinLevel &lhs, const CoinLevel &rhs) const
-	{
-		return lhs.px < rhs.px;
-	}
+  bool operator()(const CoinLevel &lhs, const CoinLevel &rhs) const
+  {
+	 return lhs.px < rhs.px;
+  }
 
-	bool operator()(const CoinLevel *lhs, const CoinLevel *rhs) const
-	{
-		return lhs->px < rhs->px;
-	}
+  bool operator()(const CoinLevel *lhs, const CoinLevel *rhs) const
+  {
+	 return lhs->px < rhs->px;
+  }
 } __attribute__((packed, aligned(64)));
 
 struct CoinCache {
@@ -117,19 +117,19 @@ struct CoinCache {
   uint64_t _origseqno;
 
   uint32_t _seconds;
-	uint32_t _milliseconds;
+  uint32_t _milliseconds;
 
-	double _high24;
-	double _low24;
-	double _vol24;
-	double _open;
-	double _last;
+  double _high24;
+  double _low24;
+  double _vol24;
+  double _open;
+  double _last;
 
-	CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
-		_seconds(0), _milliseconds(0), _high24(0), _low24(0),
-		_vol24(0), _open(0), _last(0) {
-	  ::memset(_key, 0, sizeof(_key));
-	}
+  CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
+										 _seconds(0), _milliseconds(0), _high24(0), _low24(0),
+										 _vol24(0), _open(0), _last(0) {
+	 ::memset(_key, 0, sizeof(_key));
+  }
 } __attribute__ ((packed, aligned(64)));
 
 // BEGIN Coypu Types
@@ -200,13 +200,13 @@ typedef struct CoypuContextS {
 } CoypuContext;
 
 void bar (std::shared_ptr<CoypuContext> context, bool &done) {
-	CPUManager::SetName("coypu_epoll");
+  CPUManager::SetName("coypu_epoll");
 
-	while (!done) {
-		if(context->_eventMgr->Wait() < 0) {
-			done = true;
-		}
-	}
+  while (!done) {
+	 if(context->_eventMgr->Wait() < 0) {
+		done = true;
+	 }
+  }
 }
 
 void EventClearBooks (uint32_t source, std::weak_ptr<CoypuContext> wContext) {
@@ -229,129 +229,129 @@ void EventClearBooks (uint32_t source, std::weak_ptr<CoypuContext> wContext) {
 
 template <typename RecordType>
 int RestoreStore (const std::string &name, const std::function<void(const char *, ssize_t)> &restore_record_cb) {
-	uint32_t index = 0;
-	bool b = false;
-	constexpr size_t record_size = sizeof(RecordType);
-	char data[record_size];
-	do {
-		char storeFile[PATH_MAX];
-		::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
-		FileUtil::Exists(storeFile, b);
-		if (b) {
-			int fd = FileUtil::Open(storeFile, O_LARGEFILE|O_RDONLY, 0600);
-			if (fd >= 0) {
-				off64_t curSize = 0;
-				FileUtil::GetSize(fd, curSize);
-				assert(curSize % record_size == 0);
-				// FileUtil::LSeekSet (fd, 0);
+  uint32_t index = 0;
+  bool b = false;
+  constexpr size_t record_size = sizeof(RecordType);
+  char data[record_size];
+  do {
+	 char storeFile[PATH_MAX];
+	 ::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+	 FileUtil::Exists(storeFile, b);
+	 if (b) {
+		int fd = FileUtil::Open(storeFile, O_LARGEFILE|O_RDONLY, 0600);
+		if (fd >= 0) {
+		  off64_t curSize = 0;
+		  FileUtil::GetSize(fd, curSize);
+		  assert(curSize % record_size == 0);
+		  // FileUtil::LSeekSet (fd, 0);
 
-				int count = 0;
-				for (off64_t c = 0; c < curSize; c += record_size) {
-					ssize_t r = ::read(fd, data, record_size);
-					if (r < 0) {
-						::close(fd);
-						return r;
-					}
-
-					if (r != record_size) {
-						::close(fd);
-						return -100;
-					}
-
-					if (data[0] != 0) {
-						++count;
-						restore_record_cb(data, r);
-					}
-				}	
-
+		  int count = 0;
+		  for (off64_t c = 0; c < curSize; c += record_size) {
+			 ssize_t r = ::read(fd, data, record_size);
+			 if (r < 0) {
 				::close(fd);
-			}
-		}
-	} while (b && ++index < UINT32_MAX);
+				return r;
+			 }
 
-	return 0;
+			 if (r != record_size) {
+				::close(fd);
+				return -100;
+			 }
+
+			 if (data[0] != 0) {
+				++count;
+				restore_record_cb(data, r);
+			 }
+		  }	
+
+		  ::close(fd);
+		}
+	 }
+  } while (b && ++index < UINT32_MAX);
+
+  return 0;
 }
 
 template <typename StreamType, typename BufType>
 std::shared_ptr <StreamType> CreateStore (const std::string &name) {
-	bool fileExists = false;
-	char storeFile[PATH_MAX];
-	std::shared_ptr<StreamType> streamSP = nullptr; 
+  bool fileExists = false;
+  char storeFile[PATH_MAX];
+  std::shared_ptr<StreamType> streamSP = nullptr; 
 		
-	FileUtil::Mkdir(name.c_str(), 0777, true);
+  FileUtil::Mkdir(name.c_str(), 0777, true);
 	
-	// TODO if we go backward it will be quicker (less copies?)
-	for (uint32_t index = 0; index < UINT32_MAX; ++index) {
-		::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
-		fileExists = false;
-		FileUtil::Exists(storeFile, fileExists);
-		if (!fileExists) {
-			// open in direct mode
-			int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-			if (fd >= 0) {
-				int pageMult = 64;
-				size_t pageSize = pageMult * MemManager::GetPageSize();
-				off64_t curSize = 0;
-				FileUtil::GetSize(fd, curSize);
+  // TODO if we go backward it will be quicker (less copies?)
+  for (uint32_t index = 0; index < UINT32_MAX; ++index) {
+	 ::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
+	 fileExists = false;
+	 FileUtil::Exists(storeFile, fileExists);
+	 if (!fileExists) {
+		// open in direct mode
+		int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+		if (fd >= 0) {
+		  int pageMult = 64;
+		  size_t pageSize = pageMult * MemManager::GetPageSize();
+		  off64_t curSize = 0;
+		  FileUtil::GetSize(fd, curSize);
 
-				std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd, false);
-				streamSP = std::make_shared<StreamType>(bufSP);
-			} else {
-				return nullptr;
-			}
-			return streamSP;
+		  std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd, false);
+		  streamSP = std::make_shared<StreamType>(bufSP);
+		} else {
+		  return nullptr;
 		}
-	}
-	return nullptr;
+		return streamSP;
+	 }
+  }
+  return nullptr;
 }
 
 template <typename StreamType, typename BufType>
 std::shared_ptr <StreamType> CreateAnonStore () {
-	int pageMult = 64;
-	size_t pageSize = pageMult * MemManager::GetPageSize();
-	off64_t curSize = 0;
-	std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, -1, true);
-	return std::make_shared<StreamType>(bufSP);
+  int pageMult = 64;
+  size_t pageSize = pageMult * MemManager::GetPageSize();
+  off64_t curSize = 0;
+  std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, -1, true);
+  return std::make_shared<StreamType>(bufSP);
 }
 
 int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::string &interface, uint16_t port) {
-	int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
-	if (sockFD < 0) {
-		logger->perror(errno, "CreateIPV4NonBlockSocket");
-		return -1;
-	}
+  int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
+  if (sockFD < 0) {
+	 logger->perror(errno, "CreateIPV4NonBlockSocket");
+	 return -1;
+  }
 
-	if (TCPHelper::SetReuseAddr(sockFD) < 0 ) {
-		logger->perror(errno, "SetReuseAddr");
-		return -1;
-	}
-	struct sockaddr_in interface_in;
-	int ret = TCPHelper::GetInterfaceIPV4FromName (interface.c_str(), interface.length(), interface_in);
-	if (ret) {
-	  logger->error("Failed to find interface[{0}]", interface);
-		logger->perror(errno, "GetInterfaceIPV4FromName");
-		return -1;
-	}
+  if (TCPHelper::SetReuseAddr(sockFD) < 0 ) {
+	 logger->perror(errno, "SetReuseAddr");
+	 return -1;
+  }
+  struct sockaddr_in interface_in;
+  int ret = TCPHelper::GetInterfaceIPV4FromName (interface.c_str(), interface.length(), interface_in);
+  if (ret) {
+	 logger->error("Failed to find interface[{0}]", interface);
+	 logger->perror(errno, "GetInterfaceIPV4FromName");
+	 return -1;
+  }
 
-	struct sockaddr_in serv_addr= {0}; //v4 family
+  struct sockaddr_in serv_addr= {0}; //v4 family
 
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = INADDR_ANY; //interface_in.sin_addr.s_addr;
-	serv_addr.sin_port = htons(port);
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_addr.s_addr = INADDR_ANY; //interface_in.sin_addr.s_addr;
+  serv_addr.sin_port = htons(port);
 
-	ret = TCPHelper::BindIPV4(sockFD, &serv_addr);
-	if (ret != 0) {
-		::close(sockFD);
-		logger->perror(errno, "BindIPV4");
-		return -1;
-	}
+  ret = TCPHelper::BindIPV4(sockFD, &serv_addr);
+  if (ret != 0) {
+	 ::close(sockFD);
+	 logger->perror(errno, "BindIPV4");
+	 return -1;
+  }
 
-	ret = TCPHelper::Listen(sockFD, 16);
-	if (ret != 0) {
-		logger->perror(errno, "Listen");
-		return -1;
-	}
-	return sockFD;
+  ret = TCPHelper::Listen(sockFD, 16);
+  if (ret != 0) {
+	 logger->perror(errno, "Listen");
+	 return -1;
+  }
+  return sockFD;
 }
 
 template <typename T, typename X>
@@ -446,65 +446,65 @@ void SetupSimpleServer (std::string &interface,
 
 
 void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> &contextSP) {
-  	std::string publish_path;
-	config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
-	contextSP->_publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
+  std::string publish_path;
+  config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
+  contextSP->_publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
 
-	std::string cache_path;
-	config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
-	contextSP->_cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
+  std::string cache_path;
+  config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
+  contextSP->_cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
 
-	contextSP->_coinCache = std::make_shared<CacheType>(contextSP->_cacheStreamSP);
+  contextSP->_coinCache = std::make_shared<CacheType>(contextSP->_cacheStreamSP);
 
-	std::function<void(const char *, ssize_t)> restore = [&contextSP] (const char *data, ssize_t len) {
-		assert(len == sizeof(CoinCache));
-		const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
-		contextSP->_coinCache->Restore(*cc);
-	};
+  std::function<void(const char *, ssize_t)> restore = [&contextSP] (const char *data, ssize_t len) {
+	 assert(len == sizeof(CoinCache));
+	 const CoinCache *cc = reinterpret_cast<const CoinCache *>(data);
+	 contextSP->_coinCache->Restore(*cc);
+  };
 
-	if (RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore) < 0) {
-	  contextSP->_consoleLogger->perror(errno, "RestoreStore");
-	}
+  if (RestoreStore<CoinCache>(COYPU_CACHE_PATH, restore) < 0) {
+	 contextSP->_consoleLogger->perror(errno, "RestoreStore");
+  }
 
-	std::stringstream ss;
-	ss << *(contextSP->_coinCache);
-	contextSP->_consoleLogger->info("Restore {0}", ss.str());
-	contextSP->_consoleLogger->info("Cache check seqnum[{0}]", contextSP->_coinCache->CheckSeq());
+  std::stringstream ss;
+  ss << *(contextSP->_coinCache);
+  contextSP->_consoleLogger->info("Restore {0}", ss.str());
+  contextSP->_consoleLogger->info("Cache check seqnum[{0}]", contextSP->_coinCache->CheckSeq());
 
-	std::string gdaxStoreFile("gdax.store");
+  std::string gdaxStoreFile("gdax.store");
 
-	bool b = false;
-	FileUtil::Exists(gdaxStoreFile.c_str(), b);
-	// open in direct mode
-	int fd = FileUtil::Open(gdaxStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-	if (fd >= 0) {
-	  size_t pageSize = 64 * MemManager::GetPageSize();
-	  off64_t curSize = 0;
-	  FileUtil::GetSize(fd, curSize);
-	  contextSP->_consoleLogger->info("Current size [{0}]", curSize);
+  bool b = false;
+  FileUtil::Exists(gdaxStoreFile.c_str(), b);
+  // open in direct mode
+  int fd = FileUtil::Open(gdaxStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+  if (fd >= 0) {
+	 size_t pageSize = 64 * MemManager::GetPageSize();
+	 off64_t curSize = 0;
+	 FileUtil::GetSize(fd, curSize);
+	 contextSP->_consoleLogger->info("Current size [{0}]", curSize);
 	  
-	  std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
-	  contextSP->_gdaxStreamSP = std::make_shared<StreamType>(bufSP);
-	} else {
-	  contextSP->_consoleLogger->perror(errno, "Open");
-	}
+	 std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
+	 contextSP->_gdaxStreamSP = std::make_shared<StreamType>(bufSP);
+  } else {
+	 contextSP->_consoleLogger->perror(errno, "Open");
+  }
 
-	std::string krakenStoreFile("kraken.store");
-	b = false;
-	FileUtil::Exists(krakenStoreFile.c_str(), b);
-	// open in direct mode
-	fd = FileUtil::Open(krakenStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-	if (fd >= 0) {
-	  size_t pageSize = 64 * MemManager::GetPageSize();
-	  off64_t curSize = 0;
-	  FileUtil::GetSize(fd, curSize);
-	  contextSP->_consoleLogger->info("Current size [{0}]", curSize);
+  std::string krakenStoreFile("kraken.store");
+  b = false;
+  FileUtil::Exists(krakenStoreFile.c_str(), b);
+  // open in direct mode
+  fd = FileUtil::Open(krakenStoreFile.c_str(), O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
+  if (fd >= 0) {
+	 size_t pageSize = 64 * MemManager::GetPageSize();
+	 off64_t curSize = 0;
+	 FileUtil::GetSize(fd, curSize);
+	 contextSP->_consoleLogger->info("Current size [{0}]", curSize);
 	  
-	  std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
-	  contextSP->_krakenStreamSP = std::make_shared<StreamType>(bufSP);
-	} else {
-	  contextSP->_consoleLogger->perror(errno, "Open");
-	}
+	 std::shared_ptr<RWBufType> bufSP = std::make_shared<RWBufType>(pageSize, curSize, fd, false);
+	 contextSP->_krakenStreamSP = std::make_shared<StreamType>(bufSP);
+  } else {
+	 contextSP->_consoleLogger->perror(errno, "Open");
+  }
 
 }
 
@@ -609,24 +609,24 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
 	 int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
 	 TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
 	 std::function<int(int)> readTimerCB = [wContextSP] (int fd) {
-		uint64_t x;
-		if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
-		  // TODO some error
-		  assert(false);
-		}
+	 uint64_t x;
+	 if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
+	 // TODO some error
+	 assert(false);
+	 }
 		
-		auto context = wContextSP.lock();
-		if (context) {
-		  // Create a websocket message and persist
-		  char pub[1024];
-		  static int count = 0;
-		  size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
-		  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-		  context->_publishStreamSP->Push(pub, len);
-		  context->_wsAnonManager->SetWriteAll();
-		}
+	 auto context = wContextSP.lock();
+	 if (context) {
+	 // Create a websocket message and persist
+	 char pub[1024];
+	 static int count = 0;
+	 size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
+	 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+	 context->_publishStreamSP->Push(pub, len);
+	 context->_wsAnonManager->SetWriteAll();
+	 }
 		
-		return 0;
+	 return 0;
 	 };
 	 context->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
 	 */
@@ -673,7 +673,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 	 }
   };
 
-    std::function<int(int)> closeSSL = [wContextSP] (int fd) {
+  std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
 		context->_openSSLMgr->Unregister(fd);
@@ -1186,266 +1186,266 @@ int main(int argc, char **argv)
 {
   //processRust(10);
 
-	static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
+  static_assert(sizeof(CoinCache) == 128, "CoinCache Size Check");
 
-	if (argc != 2) {
-		fprintf(stderr, "Usage: %s <yaml_config>\n", argv[0]);
-		exit(1);
-	}
+  if (argc != 2) {
+	 fprintf(stderr, "Usage: %s <yaml_config>\n", argv[0]);
+	 exit(1);
+  }
 
-	int r = CPUManager::RunOnNode(0);
-	if (r) {
-	  fprintf(stderr, "Num failed %d\n", r);
-	  exit(1);
-	}
+  int r = CPUManager::RunOnNode(0);
+  if (r) {
+	 fprintf(stderr, "Num failed %d\n", r);
+	 exit(1);
+  }
 	
-	//ssl 
-	SSLType::Init();
-	int rc = RAND_load_file("/dev/urandom", 32); // /dev/random can be slow
-	if(rc != 32) {
-	  fprintf(stderr, "RAND_load_file fail.\n"); 
-	  exit(1);
-	}
+  //ssl 
+  SSLType::Init();
+  int rc = RAND_load_file("/dev/urandom", 32); // /dev/random can be slow
+  if(rc != 32) {
+	 fprintf(stderr, "RAND_load_file fail.\n"); 
+	 exit(1);
+  }
 	
-	// set terminate
-	std::set_terminate([](){ std::cout << "Unhandled exception\n";
-							BackTrace::bt();
-							std::abort();});
+  // set terminate
+  std::set_terminate([](){ std::cout << "Unhandled exception\n";
+		BackTrace::bt();
+		std::abort();});
 	
-	// Block all signals - wait til random is collected
-	SignalFDHelper::BlockAllSignals();
+  // Block all signals - wait til random is collected
+  SignalFDHelper::BlockAllSignals();
 	
-	// Default console logger
-	auto console = spdlog::stdout_color_mt("console"); // ,ultithread
-	auto error_logger = spdlog::stderr_color_mt("stderr");
-	spdlog::set_level(spdlog::level::info); // Set global log level to info
-	console->info("Coypu [{1}] Git Revision [{0}]", _GIT_REV, COYPU_VERSION);
+  // Default console logger
+  auto console = spdlog::stdout_color_mt("console"); // ,ultithread
+  auto error_logger = spdlog::stderr_color_mt("stderr");
+  spdlog::set_level(spdlog::level::info); // Set global log level to info
+  console->info("Coypu [{1}] Git Revision [{0}]", _GIT_REV, COYPU_VERSION);
 	
-	// config
-	std::shared_ptr<CoypuConfig> config = CoypuConfig::Parse(argv[1]);
-	if (!config) {
-	  error_logger->error("Failed to parse config");
-	  exit(1);
-	}
-	config = config->GetConfig("<<ROOT>>");
+  // config
+  std::shared_ptr<CoypuConfig> config = CoypuConfig::Parse(argv[1]);
+  if (!config) {
+	 error_logger->error("Failed to parse config");
+	 exit(1);
+  }
+  config = config->GetConfig("<<ROOT>>");
 	
-	// loggers
-	std::shared_ptr<CoypuConfig> loggers = config->GetConfig("loggers");
-	if (loggers) {
-	  std::vector<std::string> loggerNames;
-	  loggers->GetKeys(loggerNames);
+  // loggers
+  std::shared_ptr<CoypuConfig> loggers = config->GetConfig("loggers");
+  if (loggers) {
+	 std::vector<std::string> loggerNames;
+	 loggers->GetKeys(loggerNames);
 	  
-	  for (const std::string &logger : loggerNames) {
-		 auto cfgLog = loggers->GetConfig(logger);
-		 assert(cfgLog);
+	 for (const std::string &logger : loggerNames) {
+		auto cfgLog = loggers->GetConfig(logger);
+		assert(cfgLog);
 		 
-		 std::string level, file;
-		 cfgLog->GetKeyValue("level", level);
-		 cfgLog->GetKeyValue("file", file);
+		std::string level, file;
+		cfgLog->GetKeyValue("level", level);
+		cfgLog->GetKeyValue("file", file);
 		 
-		 if (level.empty() || file.empty()) {
-			error_logger->error("Logger config missing level or file.");
-			exit(1);
-		 }
+		if (level.empty() || file.empty()) {
+		  error_logger->error("Logger config missing level or file.");
+		  exit(1);
+		}
 		 
-		 auto log = spdlog::basic_logger_st(logger, file);
-		 log->flush_on(spdlog::level::warn); 
-		 log->set_level(spdlog::level::from_str(level));
-		 // spdlog::register_logger(log); not needed
-	  }
-	} else {
-	  assert(false);
-	}
+		auto log = spdlog::basic_logger_st(logger, file);
+		log->flush_on(spdlog::level::warn); 
+		log->set_level(spdlog::level::from_str(level));
+		// spdlog::register_logger(log); not needed
+	 }
+  } else {
+	 assert(false);
+  }
 
-	// Config BEGIN
-	std::string wsStoreFile;
-	LogType wsLogger;
-	{
-		auto cfg = config->GetConfig("coypu");
-		std::string logger;
-		std::string cpuStr;
+  // Config BEGIN
+  std::string wsStoreFile;
+  LogType wsLogger;
+  {
+	 auto cfg = config->GetConfig("coypu");
+	 std::string logger;
+	 std::string cpuStr;
+	 if (cfg) {
+		cfg = cfg->GetConfig("websocket");
+
 		if (cfg) {
-			cfg = cfg->GetConfig("websocket");
-
-			if (cfg) {
-				cfg->GetValue("logger", logger);
-				cfg->GetValue("cpu", cpuStr);
-				cfg->GetValue("store-file", wsStoreFile);
-			}
+		  cfg->GetValue("logger", logger);
+		  cfg->GetValue("cpu", cpuStr);
+		  cfg->GetValue("store-file", wsStoreFile);
 		}
+	 }
 
-		if (!logger.empty()) {
-			std::shared_ptr<spdlog::logger> x = spdlog::get(logger);
-			assert(x);
-			wsLogger = std::make_shared<SPDLogger>(x);
-		}
+	 if (!logger.empty()) {
+		std::shared_ptr<spdlog::logger> x = spdlog::get(logger);
+		assert(x);
+		wsLogger = std::make_shared<SPDLogger>(x);
+	 }
 
-		CPUManager::SetName("websocket");
-		if (!cpuStr.empty()) {
-			int r = CPUManager::SetCPUs(cpuStr);
-			assert(r == 0);
-		}
-	}
-	assert(wsLogger);
-	// Config END
+	 CPUManager::SetName("websocket");
+	 if (!cpuStr.empty()) {
+		int r = CPUManager::SetCPUs(cpuStr);
+		assert(r == 0);
+	 }
+  }
+  assert(wsLogger);
+  // Config END
 	
-	// app
-	CoypuApplication &c = CoypuApplication::instance();
-	(void)c;
+  // app
+  CoypuApplication &c = CoypuApplication::instance();
+  (void)c;
 	
-	auto consoleLogger = std::make_shared<coypu::SPDLogger>(console);
+  auto consoleLogger = std::make_shared<coypu::SPDLogger>(console);
 
-	auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
-	contextSP->_eventMgr->Init(); // needs to happens before cb manager so we can register the queue.
+  auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
+  contextSP->_eventMgr->Init(); // needs to happens before cb manager so we can register the queue.
 
-	contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
+  contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
 
 
-	CreateStores(config, contextSP);
+  CreateStores(config, contextSP);
 
-	// Init event manager
+  // Init event manager
 
-	// BEGIN Signal
-	sigset_t mask;
-	::sigemptyset(&mask);
-	::sigaddset(&mask, SIGINT);
-	::sigaddset(&mask, SIGKILL);
-	::sigaddset(&mask, SIGQUIT);
-	int signalFD = SignalFDHelper::CreateNonBlockSignalFD(&mask);
-	if (signalFD == -1) {
-		consoleLogger->perror(errno, "CreateNonBlockSignalFD");
-	}
+  // BEGIN Signal
+  sigset_t mask;
+  ::sigemptyset(&mask);
+  ::sigaddset(&mask, SIGINT);
+  ::sigaddset(&mask, SIGKILL);
+  ::sigaddset(&mask, SIGQUIT);
+  int signalFD = SignalFDHelper::CreateNonBlockSignalFD(&mask);
+  if (signalFD == -1) {
+	 consoleLogger->perror(errno, "CreateNonBlockSignalFD");
+  }
 
-	bool done = false;
-	coypu::event::callback_type readCB = [&done](int fd) {
-		struct signalfd_siginfo signal;
-		int count = ::read(fd, &signal, sizeof(signal));  
-		if (count == -1) {
-			fprintf(stderr, "Signal read error\n");
+  bool done = false;
+  coypu::event::callback_type readCB = [&done](int fd) {
+	 struct signalfd_siginfo signal;
+	 int count = ::read(fd, &signal, sizeof(signal));  
+	 if (count == -1) {
+		fprintf(stderr, "Signal read error\n");
+	 }
+	 done = true;
+	 return 0;
+  };
+
+  if (contextSP->_eventMgr->Register(signalFD, readCB, nullptr, nullptr)) {
+	 consoleLogger->perror(errno, "Register");
+  }
+  // END Signal
+
+  // BEGIN Create websocket service
+  std::string interface;
+  config->GetValue("interface", interface);
+  assert(!interface.empty());
+  int sockFD = BindAndListen(consoleLogger, interface, 8080);
+  if (sockFD > 0) {
+	 std::weak_ptr <CoypuContext> wContextSP = contextSP;
+
+	 coypu::event::callback_type acceptCB = [wContextSP, logger=consoleLogger](int fd) {
+		auto context = wContextSP.lock();
+		if (context) {
+		  AcceptWebsocketClient(context, logger, fd);
 		}
-		done = true;
 		return 0;
-	};
-
-	if (contextSP->_eventMgr->Register(signalFD, readCB, nullptr, nullptr)) {
-	  consoleLogger->perror(errno, "Register");
-	}
-	// END Signal
-
-	// BEGIN Create websocket service
-	std::string interface;
-	config->GetValue("interface", interface);
-	assert(!interface.empty());
-	int sockFD = BindAndListen(consoleLogger, interface, 8080);
-	if (sockFD > 0) {
-	  std::weak_ptr <CoypuContext> wContextSP = contextSP;
-
-	  coypu::event::callback_type acceptCB = [wContextSP, logger=consoleLogger](int fd) {
-		 auto context = wContextSP.lock();
-		 if (context) {
-			AcceptWebsocketClient(context, logger, fd);
-		 }
-		 return 0;
-	  };
+	 };
 	  
-	  if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
-		 consoleLogger->perror(errno, "Register");
-	  }
-	} else {
-	  consoleLogger->error("Failed to create websocket fd");
-	}
-	// END Websocket service
+	 if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
+		consoleLogger->perror(errno, "Register");
+	 }
+  } else {
+	 consoleLogger->error("Failed to create websocket fd");
+  }
+  // END Websocket service
 
-	bool doCB = false;
+  bool doCB = false;
 
-	// GDAX BEGIN
-	config->GetValue("do-gdax", doCB);
-	if (doCB) {
-	  std::weak_ptr<CoypuContext> wContext = contextSP;
-	  std::vector <std::string> symbolList;
-	  std::vector <std::string> channelList;
-	  config->GetSeqValues("gdax-symbols", symbolList);
-	  config->GetSeqValues("gdax-channels", channelList);
+  // GDAX BEGIN
+  config->GetValue("do-gdax", doCB);
+  if (doCB) {
+	 std::weak_ptr<CoypuContext> wContext = contextSP;
+	 std::vector <std::string> symbolList;
+	 std::vector <std::string> channelList;
+	 config->GetSeqValues("gdax-symbols", symbolList);
+	 config->GetSeqValues("gdax-channels", channelList);
   
-	  std::function<void(void)> cb = [wContext, symbolList, channelList] () -> void {
-		 auto contextSP = wContext.lock();
-		 if (contextSP) {
-			std::string gdax_hostname = "ws-feed.pro.coinbase.com";
-			uint32_t gdax_port = 443;
-			auto consoleLogger = spdlog::get("console");
-			assert(consoleLogger);
-			if (consoleLogger) {
-			  consoleLogger->info("Reconnect GDAX {0}:{1}", gdax_hostname, gdax_port);
-			}
-			StreamGDAX(contextSP, gdax_hostname, gdax_port, symbolList, channelList);
-		 }
-	  };
-	  contextSP->_cbManager->Register(CE_WS_CONNECT_GDAX, cb);
+	 std::function<void(void)> cb = [wContext, symbolList, channelList] () -> void {
+		auto contextSP = wContext.lock();
+		if (contextSP) {
+		  std::string gdax_hostname = "ws-feed.pro.coinbase.com";
+		  uint32_t gdax_port = 443;
+		  auto consoleLogger = spdlog::get("console");
+		  assert(consoleLogger);
+		  if (consoleLogger) {
+			 consoleLogger->info("Reconnect GDAX {0}:{1}", gdax_hostname, gdax_port);
+		  }
+		  StreamGDAX(contextSP, gdax_hostname, gdax_port, symbolList, channelList);
+		}
+	 };
+	 contextSP->_cbManager->Register(CE_WS_CONNECT_GDAX, cb);
 
-	  /// fire to start
-	  contextSP->_cbManager->Queue(CE_WS_CONNECT_GDAX);
-	}
-	// GDAX END
+	 /// fire to start
+	 contextSP->_cbManager->Queue(CE_WS_CONNECT_GDAX);
+  }
+  // GDAX END
 
-	// Kracken BEGIN
-	config->GetValue("do-kraken", doCB);
-	if (doCB) {
-	  std::weak_ptr<CoypuContext> wContext = contextSP;
-	  std::vector <std::string> symbolList;
-	  config->GetSeqValues("kraken-symbols", symbolList);
-	  std::string kraken_hostname;
-	  config->GetValue("kraken-host", kraken_hostname);
-	  assert(!kraken_hostname.empty());
+  // Kracken BEGIN
+  config->GetValue("do-kraken", doCB);
+  if (doCB) {
+	 std::weak_ptr<CoypuContext> wContext = contextSP;
+	 std::vector <std::string> symbolList;
+	 config->GetSeqValues("kraken-symbols", symbolList);
+	 std::string kraken_hostname;
+	 config->GetValue("kraken-host", kraken_hostname);
+	 assert(!kraken_hostname.empty());
   
-	  std::function<void(void)> cb = [wContext, symbolList, kraken_hostname] () -> void {
-		 auto contextSP = wContext.lock();
-		 if (contextSP) {
-			uint32_t kraken_port = 443;
-			auto consoleLogger = spdlog::get("console");
-			assert(consoleLogger);
-			if (consoleLogger) {
-			  consoleLogger->info("Reconnect Kraken {0}:{1}", kraken_hostname, kraken_port);
-			}
-			StreamKraken(contextSP, kraken_hostname, kraken_port, symbolList);
-		 }
-	  };
-	  contextSP->_cbManager->Register(CE_WS_CONNECT_KRAKEN, cb);
+	 std::function<void(void)> cb = [wContext, symbolList, kraken_hostname] () -> void {
+		auto contextSP = wContext.lock();
+		if (contextSP) {
+		  uint32_t kraken_port = 443;
+		  auto consoleLogger = spdlog::get("console");
+		  assert(consoleLogger);
+		  if (consoleLogger) {
+			 consoleLogger->info("Reconnect Kraken {0}:{1}", kraken_hostname, kraken_port);
+		  }
+		  StreamKraken(contextSP, kraken_hostname, kraken_port, symbolList);
+		}
+	 };
+	 contextSP->_cbManager->Register(CE_WS_CONNECT_KRAKEN, cb);
 
-	  /// fire to start
-	  contextSP->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
-	}
-	// Kracken END
+	 /// fire to start
+	 contextSP->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
+  }
+  // Kracken END
 	
 	
-	config->GetValue("do-server-test", doCB);
-	if (doCB) DoServerTest(contextSP);
+  config->GetValue("do-server-test", doCB);
+  if (doCB) DoServerTest(contextSP);
 
-	std::string adminPort;
-	config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
-	SetupSimpleServer<AdminManagerType>(interface, contextSP->_adminManager, contextSP->_eventMgr, atoi(adminPort.c_str()));
+  std::string adminPort;
+  config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
+  SetupSimpleServer<AdminManagerType>(interface, contextSP->_adminManager, contextSP->_eventMgr, atoi(adminPort.c_str()));
 
-	std::string protoPort;
-	config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
-	SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
+  std::string protoPort;
+  config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
+  SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
-	// test proto
-	std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> snapbook =
-	  [] (const std::shared_ptr<google::protobuf::io::CodedInputStream> &coded_in) -> bool {
-	  coypu::msg::CoinCache gCC;
-	  bool b = gCC.MergeFromCodedStream(coded_in.get());
-	  assert(b);
-	  std::cout << gCC.DebugString() << std::endl;
-	  return coded_in->ConsumedEntireMessage();
-	};
-	contextSP->_protoManager->RegisterType(99, snapbook);
+  // test proto
+  std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> snapbook =
+	 [] (const std::shared_ptr<google::protobuf::io::CodedInputStream> &coded_in) -> bool {
+	 coypu::msg::CoinCache gCC;
+	 bool b = gCC.MergeFromCodedStream(coded_in.get());
+	 assert(b);
+	 std::cout << gCC.DebugString() << std::endl;
+	 return coded_in->ConsumedEntireMessage();
+  };
+  contextSP->_protoManager->RegisterType(99, snapbook);
 	
-	// watch out for threading on loggers
-	std::thread t1(bar, contextSP, std::ref(done));
-	t1.join();
-	contextSP->_eventMgr->Close();
+  // watch out for threading on loggers
+  std::thread t1(bar, contextSP, std::ref(done));
+  t1.join();
+  contextSP->_eventMgr->Close();
 
-	google::protobuf::ShutdownProtobufLibrary();
+  google::protobuf::ShutdownProtobufLibrary();
 	
-	return 0;
+  return 0;
 }
 
