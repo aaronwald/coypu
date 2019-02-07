@@ -132,7 +132,6 @@ namespace coypu {
 		  if (!con) return -2;
 
 		  int r = con->_readBuf->Readv(fd, con->_readv);
-		  std::cout << "foooo " << r << std::endl;
 				  
 		  if (con->_readBuf->Available() >= 0) {
 			 if (con->_gSize == 0) {
@@ -140,12 +139,13 @@ namespace coypu {
 				bool b = con->_gInStream->ReadVarint32(&con->_gSize);
 				if (!b) return r; // wait for more data
 			 }
+
+			 if (con->_readBuf->Available() == 0) return r;
+			 
 			 if (con->_gType == 0) {
 				bool b = con->_gInStream->ReadVarint32(&con->_gType);
 				if (!b) return r; // wait for more data
 			 }
-
-			 std::cout << "Type " << con->_gType << std::endl;
 
 			 if (con->_readBuf->Available() >= con->_gSize) {
 				google::protobuf::io::CodedInputStream::Limit limit =
@@ -158,7 +158,6 @@ namespace coypu {
 				  bool b = (*i).second(con->_gInStream);
 				  assert(b);
 				}
-				// ASSERT_TRUE(coded_input.ConsumedEntireMessage());
 
 				con->_gInStream->PopLimit(limit);
 				con->_gSize = 0;

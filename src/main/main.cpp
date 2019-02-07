@@ -1428,6 +1428,17 @@ int main(int argc, char **argv)
 	config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
 	SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
+	// test proto
+	std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> snapbook =
+	  [] (const std::shared_ptr<google::protobuf::io::CodedInputStream> &coded_in) -> bool {
+	  coypu::msg::CoinCache gCC;
+	  bool b = gCC.MergeFromCodedStream(coded_in.get());
+	  assert(b);
+	  std::cout << gCC.DebugString() << std::endl;
+	  return coded_in->ConsumedEntireMessage();
+	};
+	contextSP->_protoManager->RegisterType(99, snapbook);
+	
 	// watch out for threading on loggers
 	std::thread t1(bar, contextSP, std::ref(done));
 	t1.join();

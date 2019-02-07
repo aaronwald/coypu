@@ -243,7 +243,7 @@ class Display:
         writer.write(_VarintBytes(size))
         writer.write(_VarintBytes(type)) 
         writer.write(p.SerializeToString())
-        log.info("Write Size %d" % size)
+        #log.info("Write Size %d" % size)
         
         data = await reader.read(4) # read 4 bytes
 
