@@ -24,6 +24,8 @@
 #include "mem/mem.h"
 #include "proto/coincache.pb.h"
 #include "protobuf/streams.h"
+#include "protobuf/protomgr.h"
+#include "buf/buf.h"
 
 #include <string>
 #include <sstream>
@@ -34,6 +36,7 @@ using namespace coypu::file;
 using namespace coypu::mem;
 using namespace coypu::msg;
 using namespace coypu::protobuf;
+using namespace coypu::buf;
 
 class outbuf : public std::streambuf {
 protected:
@@ -133,3 +136,36 @@ TEST(ProtoTest, Test2)
   ASSERT_NO_THROW(FileUtil::Close(fd));
   ASSERT_NO_THROW(FileUtil::Remove(buf));
 }
+
+TEST(ProtoTest, BufTest1) {
+  coypu::msg::CoinCache gCC;
+  gCC.set_origseqno(2);
+  gCC.set_seconds(3);
+  gCC.set_milliseconds(4);
+  gCC.set_high24(100.00);
+  gCC.set_low24(90.000);
+  gCC.set_vol24(120.00);
+  gCC.set_open(99.00);
+  gCC.set_last(101.00);
+  std::string s;
+  ASSERT_TRUE(gCC.SerializeToString(&s));
+
+  char data[512] = {};
+  typedef BipBuf <char, int> buf_type;
+  buf_type buf2(data, 512);
+  ASSERT_TRUE(buf2.Push(s.c_str(), s.length()));
+  
+  BufZeroCopyInputStream<buf_type *> bis(&buf2);
+  google::protobuf::io::CodedInputStream coded_input(&bis);  
+  coypu::msg::CoinCache gCC2;
+  ASSERT_TRUE(gCC2.MergeFromCodedStream(&coded_input));
+  ASSERT_EQ(gCC.origseqno(), gCC2.origseqno());
+  ASSERT_EQ(gCC.seconds(), gCC2.seconds());
+  ASSERT_EQ(gCC.milliseconds(), gCC2.milliseconds());
+  ASSERT_EQ(gCC.high24(), gCC2.high24());
+  ASSERT_EQ(gCC.low24(), gCC2.low24());
+  ASSERT_EQ(gCC.vol24(), gCC2.vol24());
+  ASSERT_EQ(gCC.open(), gCC2.open());
+  ASSERT_EQ(gCC.last(), gCC2.last());
+}
+

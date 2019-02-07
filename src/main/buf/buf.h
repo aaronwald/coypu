@@ -21,6 +21,7 @@ limitations under the License.
 #include <assert.h>
 #include <string.h>
 #include <sys/uio.h>
+#include <iostream>
 
 #include <algorithm>
 #include <functional>
@@ -145,6 +146,50 @@ namespace coypu {
 
                     return true;
                 }
+					 
+					 bool PushDirect (void ** indata, CapacityType *size) {
+                    if (size == 0 || _full) return false;
+
+                    if (_head >= _tail) {
+							 *size = _capacity-_head;
+							 *indata = &_data[_head];
+							 
+							 _head += *size;
+							 if (_head == _capacity) _head = 0;
+                    } else {
+							 *size = _tail - _head;
+							 *indata = &_data[_head];
+							 _head += *size;
+                    }
+
+                    _full = _head == _tail;
+
+                    return true;
+                }
+
+					 bool BackupDirect (CapacityType count) {
+						if (count == 0) return true;
+						if (count > Available()) return false;
+						if (IsEmpty()) return false;
+
+						
+						if (_head > _tail) {
+						  _head -= count;
+						} else {
+						  CapacityType r = std::min(_head, count);
+						  _head -= r;
+						  count -= r;
+						  if (count) {
+							 _head = _capacity - count;
+						  }
+						}
+
+						_full = false;
+
+						return true;
+					 }
+
+
 
                 bool Pop (DataType *dest, CapacityType size, bool peak=false) {
                     if (size > Available()) return false;
@@ -345,6 +390,50 @@ namespace coypu {
                 CapacityType CurrentOffset() const {
                     return _head;
                 }
+
+					 bool Backup (CapacityType count) {
+						if (count > Free()) return false;
+						if (_full && _tail == _head) return false; // full or empty
+
+						if (_head < _tail) {
+						  if (count > _tail - _head) return false;
+						  _tail -= count;
+						  _full = _tail == _head;
+						} else {
+						  if (count > (_tail + (_capacity - _head))) return false;
+
+						  
+						  CapacityType temp = std::min(_tail, count);
+						  _tail -= temp;
+						  count -= temp;
+
+						  if (count > 0) {
+							 _tail = _capacity - count;
+							 _full = _tail == _head;
+						  }
+						}
+						
+						return true;
+					 }
+
+					 
+					 bool Direct (const void **out, CapacityType *len) {
+						if (IsEmpty()) return false;
+
+						if (_head > _tail) {
+						  *len = _head - _tail;
+						  *out = &_data[_tail];
+						  _tail = _head;
+						} else {
+						  *len = _head - _tail;
+						  *out = &_data[_tail];
+						  _tail = 0;
+						} 
+						_full = false;
+												
+						return true;
+					 }
+					 
 
                  bool Skip (CapacityType size) {
                     if (size > Available()) return false;
