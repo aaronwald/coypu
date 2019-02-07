@@ -645,7 +645,7 @@ TEST(BufTest, Backup3)
     ASSERT_EQ(outdata[3], 'f');
 }
 
-TEST(BufTest, Backup4) 
+TEST(BufTest, Backup4)
 {
     char data[8];
     BipBuf <char, uint32_t> buf(data, 8);
@@ -666,4 +666,99 @@ TEST(BufTest, Backup4)
     ASSERT_EQ(outdata[0], 'a');
     ASSERT_EQ(outdata[1], 'b');
 	 ASSERT_TRUE(buf.IsEmpty());
+}
+
+TEST(BufTest, Backup5)
+{
+    char data[8];
+    BipBuf <char, uint32_t> buf(data, 8);
+
+	 void *data2 = nullptr;
+	 uint32_t len = 0;
+	 ASSERT_TRUE(buf.PushDirect(&data2, &len));
+	 ASSERT_EQ(len, 8);
+	 reinterpret_cast<char *>(data2)[0] = 'a';
+	 reinterpret_cast<char *>(data2)[1] = 'b';
+	 reinterpret_cast<char *>(data2)[2] = 'c';
+	 reinterpret_cast<char *>(data2)[3] = 'd';
+	 reinterpret_cast<char *>(data2)[4] = 'e';
+	 reinterpret_cast<char *>(data2)[5] = 'f';
+	 ASSERT_TRUE(buf.BackupDirect(2));
+	 ASSERT_EQ(buf.Available(), 6);
+		 
+	 char outdata[8];
+    ::memset(outdata, 0, 8);
+    ASSERT_TRUE(buf.Pop(outdata, 2));
+    ASSERT_EQ(outdata[0], 'a');
+    ASSERT_EQ(outdata[1], 'b');
+	 ASSERT_FALSE(buf.IsEmpty());
+	 ASSERT_EQ(buf.Available(), 4);
+
+	 ASSERT_TRUE(buf.PushDirect(&data2, &len));
+	 ASSERT_EQ(len, 2);
+	 reinterpret_cast<char *>(data2)[0] = 'a';
+	 reinterpret_cast<char *>(data2)[1] = 'b';
+
+	 ::memset(outdata, 0, 8);
+    ASSERT_TRUE(buf.Pop(outdata, 6));
+    ASSERT_EQ(outdata[0], 'c');
+    ASSERT_EQ(outdata[1], 'd');
+    ASSERT_EQ(outdata[2], 'e');
+    ASSERT_EQ(outdata[3], 'f');
+    ASSERT_EQ(outdata[4], 'a');
+    ASSERT_EQ(outdata[5], 'b');
+	 ASSERT_TRUE(buf.IsEmpty());
+	 ASSERT_EQ(buf.Available(), 0);
+}
+
+TEST(BufTest, Backup6)
+{
+    char data[8];
+    BipBuf <char, uint32_t> buf(data, 8);
+
+	 void *data2 = nullptr;
+	 uint32_t len = 0;
+	 ASSERT_TRUE(buf.PushDirect(&data2, &len));
+	 ASSERT_EQ(len, 8);
+	 reinterpret_cast<char *>(data2)[0] = 'a';
+	 reinterpret_cast<char *>(data2)[1] = 'b';
+	 reinterpret_cast<char *>(data2)[2] = 'c';
+	 reinterpret_cast<char *>(data2)[3] = 'd';
+	 reinterpret_cast<char *>(data2)[4] = 'e';
+	 reinterpret_cast<char *>(data2)[5] = 'f';
+	 ASSERT_TRUE(buf.BackupDirect(2));
+	 ASSERT_EQ(buf.Available(), 6);
+		 
+	 char outdata[8];
+    ::memset(outdata, 0, 8);
+    ASSERT_TRUE(buf.Pop(outdata, 2));
+    ASSERT_EQ(outdata[0], 'a');
+    ASSERT_EQ(outdata[1], 'b');
+	 ASSERT_FALSE(buf.IsEmpty());
+	 ASSERT_EQ(buf.Available(), 4);
+
+	 ASSERT_TRUE(buf.PushDirect(&data2, &len));
+	 ASSERT_EQ(len, 2);
+	 reinterpret_cast<char *>(data2)[0] = 'a';
+	 reinterpret_cast<char *>(data2)[1] = 'b';
+	 
+	 ASSERT_TRUE(buf.PushDirect(&data2, &len));
+	 ASSERT_EQ(len, 2);
+	 reinterpret_cast<char *>(data2)[0] = 'a';
+	 reinterpret_cast<char *>(data2)[1] = 'b';
+
+	 ASSERT_FALSE(buf.PushDirect(&data2, &len));
+
+	 ::memset(outdata, 0, 8);
+    ASSERT_TRUE(buf.Pop(outdata, 8));
+    ASSERT_EQ(outdata[0], 'c');
+    ASSERT_EQ(outdata[1], 'd');
+    ASSERT_EQ(outdata[2], 'e');
+    ASSERT_EQ(outdata[3], 'f');
+    ASSERT_EQ(outdata[4], 'a');
+    ASSERT_EQ(outdata[5], 'b');
+	 ASSERT_EQ(outdata[6], 'a');
+	 ASSERT_EQ(outdata[7], 'b');
+	 ASSERT_TRUE(buf.IsEmpty());
+	 ASSERT_EQ(buf.Available(), 0);
 }

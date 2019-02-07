@@ -169,3 +169,92 @@ TEST(ProtoTest, BufTest1) {
   ASSERT_EQ(gCC.last(), gCC2.last());
 }
 
+TEST(ProtoTest, BufTest2) {
+  coypu::msg::CoinCache gCC;
+  gCC.set_origseqno(2);
+  gCC.set_seconds(3);
+  gCC.set_milliseconds(4);
+  gCC.set_high24(100.00);
+  gCC.set_low24(90.000);
+  gCC.set_vol24(120.00);
+  gCC.set_open(99.00);
+  gCC.set_last(101.00);
+
+  char data[512] = {};
+  typedef BipBuf <char, int> buf_type;
+  buf_type buf2(data, 512);
+  BufZeroCopyOutputStream<buf_type *> bos(&buf2);
+  google::protobuf::io::CodedOutputStream coded_output(&bos);
+  ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
+
+  BufZeroCopyInputStream<buf_type *> bis(&buf2);
+  google::protobuf::io::CodedInputStream coded_input(&bis);  
+  coypu::msg::CoinCache gCC2;
+  ASSERT_TRUE(gCC2.MergeFromCodedStream(&coded_input));
+  
+  ASSERT_EQ(gCC.origseqno(), gCC2.origseqno());
+  ASSERT_EQ(gCC.seconds(), gCC2.seconds());
+  ASSERT_EQ(gCC.milliseconds(), gCC2.milliseconds());
+  ASSERT_EQ(gCC.high24(), gCC2.high24());
+  ASSERT_EQ(gCC.low24(), gCC2.low24());
+  ASSERT_EQ(gCC.vol24(), gCC2.vol24());
+  ASSERT_EQ(gCC.open(), gCC2.open());
+  ASSERT_EQ(gCC.last(), gCC2.last());
+}
+
+TEST(ProtoTest, BufTest3) {
+  char data[512] = {};
+  typedef BipBuf <char, int> buf_type;
+  buf_type buf2(data, 512);
+  BufZeroCopyOutputStream<buf_type *> bos(&buf2);
+  google::protobuf::io::CodedOutputStream coded_output(&bos);
+  BufZeroCopyInputStream<buf_type *> bis(&buf2);
+  google::protobuf::io::CodedInputStream coded_input(&bis);
+  
+  coypu::msg::CoinCache gCC, gCC2;
+
+  char key[32] = {};
+  int msgCount = 128;
+  for (int i = 0; i < msgCount; ++i) {
+	 ::snprintf(key, 32, "foo_%d", i);
+	 gCC.set_key(key);
+	 gCC.set_seqno(i);
+	 ASSERT_TRUE(gCC.IsInitialized());
+	 
+	 gCC.set_origseqno(2);
+	 gCC.set_seconds(3);
+	 gCC.set_milliseconds(4);
+	 gCC.set_high24(100.00);
+	 gCC.set_low24(90.000);
+	 gCC.set_vol24(120.00);
+	 gCC.set_open(99.00);
+	 gCC.set_last(101.00);
+	
+	 const int out_size = gCC.ByteSize();
+	 coded_output.WriteVarint32(out_size);
+	 ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
+
+	 uint32_t size = 0;
+	 ASSERT_TRUE(coded_input.ReadVarint32(&size));
+
+	 google::protobuf::io::CodedInputStream::Limit limit =
+		coded_input.PushLimit(size);
+	 
+	 ASSERT_TRUE(gCC2.MergeFromCodedStream(&coded_input));
+		 
+	 ASSERT_TRUE(coded_input.ConsumedEntireMessage());
+	 coded_input.PopLimit(limit);
+	 
+	 ASSERT_EQ(gCC.origseqno(), gCC2.origseqno());
+	 ASSERT_EQ(gCC.seconds(), gCC2.seconds());
+	 ASSERT_EQ(gCC.milliseconds(), gCC2.milliseconds());
+	 ASSERT_EQ(gCC.high24(), gCC2.high24());
+	 ASSERT_EQ(gCC.low24(), gCC2.low24());
+	 ASSERT_EQ(gCC.vol24(), gCC2.vol24());
+	 ASSERT_EQ(gCC.open(), gCC2.open());
+	 ASSERT_EQ(gCC.last(), gCC2.last());
+  }
+}
+
+
+

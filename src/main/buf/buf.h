@@ -424,6 +424,10 @@ namespace coypu {
 						  *len = _head - _tail;
 						  *out = &_data[_tail];
 						  _tail = _head;
+						} else if (_full) {
+						  *out = &_data[_tail];
+						  *len = _capacity - _tail;
+						  _tail = 0;
 						} else {
 						  *len = _head - _tail;
 						  *out = &_data[_tail];
