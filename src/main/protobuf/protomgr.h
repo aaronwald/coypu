@@ -6,6 +6,7 @@
 #include <memory>
 #include <iostream>
 #include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/coded_stream.h>
 
 #include "buf/buf.h"
 #include "util/string-util.h"
@@ -87,7 +88,8 @@ namespace coypu {
 	 template <typename LogTrait>
 		class ProtoManager {
 	 public:
-		typedef std::function<void(const std::vector<std::string> &cmd)> callback_type;
+		typedef std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> callback_type;
+		
 		typedef std::function<int(int)> write_cb_type;
 
 		ProtoManager (LogTrait logger, 
@@ -115,9 +117,9 @@ namespace coypu {
 		  return 0;
 		}
 
-		bool RegisterCommand (const std::string &name, callback_type cb) {
-		  if (_commands.find(name) == _commands.end()) {
-			 _commands.insert(std::make_pair(name, cb));
+		bool RegisterType (const uint32_t type, callback_type cb) {
+		  if (_types.find(type) == _types.end()) {
+			 _types.insert(std::make_pair(type, cb));
 			 return true;
 		  }
 		  return false;
@@ -128,30 +130,40 @@ namespace coypu {
 		  if (x == _connections.end()) return -1;
 		  std::shared_ptr<con_type> &con = (*x).second;
 		  if (!con) return -2;
-		  std::cout << "foooo" << std::endl;
 
 		  int r = con->_readBuf->Readv(fd, con->_readv);
-		  uint64_t offset = 0;
-		  if (con->_readBuf->Find('\n', offset)) {
-			 char buf[1024*32];
-			 if (offset+1 > sizeof(buf)) return -1;
-			 if (con->_readBuf->Pop(buf, offset+1)) {
-				buf[offset] = 0;
-				std::string s(buf);
-				std::vector<std::string> tokens;
-				coypu::util::StringUtil::Split(s, ' ', tokens);
-				if (tokens.size() > 0) {
-				  auto b = _commands.find(tokens[0]);
-				  if (b != _commands.end()) {
-					 (*b).second(tokens);
-				  }
+		  std::cout << "foooo " << r << std::endl;
+				  
+		  if (con->_readBuf->Available() >= 0) {
+			 if (con->_gSize == 0) {
+				// TODO Should be fixed
+				bool b = con->_gInStream->ReadVarint32(&con->_gSize);
+				if (!b) return r; // wait for more data
+			 }
+			 if (con->_gType == 0) {
+				bool b = con->_gInStream->ReadVarint32(&con->_gType);
+				if (!b) return r; // wait for more data
+			 }
+
+			 std::cout << "Type " << con->_gType << std::endl;
+
+			 if (con->_readBuf->Available() >= con->_gSize) {
+				google::protobuf::io::CodedInputStream::Limit limit =
+				  con->_gInStream->PushLimit(con->_gSize);
+
+				auto i = _types.find(con->_gType);
+				assert(i != _types.end());
+
+				if (i != _types.end()) {
+				  bool b = (*i).second(con->_gInStream);
+				  assert(b);
 				}
-				// con->_writeBuf->Push('f');
-				// con->_writeBuf->Push('o');
-				// con->_writeBuf->Push('o');
-				// con->_writeBuf->Push('\r');
-				// con->_writeBuf->Push('\n');
-				// _set_write(fd);
+				// ASSERT_TRUE(coded_input.ConsumedEntireMessage());
+
+				con->_gInStream->PopLimit(limit);
+				con->_gSize = 0;
+				con->_gType = 0;
+				
 			 }
 		  }
 
@@ -178,40 +190,52 @@ namespace coypu {
 		ProtoManager (const ProtoManager &other);
 		ProtoManager &operator= (const ProtoManager &other);
 
-		typedef struct WebSocketConnection {
+		typedef coypu::buf::BipBuf <char, int> buf_type;
+		typedef std::shared_ptr<buf_type> buf_sp_type;
+		typedef BufZeroCopyInputStream<buf_sp_type> proto_in_type;
+		
+		typedef struct ClientConnection {
 		  int _fd;
-		  std::shared_ptr<coypu::buf::BipBuf <char, uint64_t>> _readBuf;
-		  std::shared_ptr<coypu::buf::BipBuf <char, uint64_t>> _writeBuf;
+
+		  buf_sp_type _readBuf;
+		  buf_sp_type _writeBuf;
+
+		  std::shared_ptr<proto_in_type> _gIn;
+		  std::shared_ptr<google::protobuf::io::CodedInputStream> _gInStream;
 		  std::function<int(int,const struct iovec *,int)> _readv;
 		  std::function<int(int,const struct iovec *,int)> _writev;
 		  char * _readData;
 		  char * _writeData;
+		  uint32_t _gSize;
+		  uint32_t _gType;
 
-		  WebSocketConnection (int fd, 
+		  ClientConnection (int fd, 
 									  int capacity,
 									  std::function<int(int,const struct iovec *,int)> readv,
 									  std::function<int(int,const struct iovec *,int)> writev ) :
-		  _fd(fd), _readv(readv), _writev(writev){ 
+		  _fd(fd), _readv(readv), _writev(writev), _gSize(0), _gType(0) { 
 			 _readData = new char[capacity];
 			 _writeData = new char[capacity];
-			 _readBuf = std::make_shared<coypu::buf::BipBuf <char, uint64_t>>(_readData, capacity);
-			 _writeBuf = std::make_shared<coypu::buf::BipBuf <char, uint64_t>>(_writeData, capacity);
+			 _readBuf = std::make_shared<buf_type>(_readData, capacity);
+			 _writeBuf = std::make_shared<buf_type>(_writeData, capacity);
+			 _gIn = std::make_shared<proto_in_type>(_readBuf);
+			 _gInStream = std::make_shared<google::protobuf::io::CodedInputStream>(_gIn.get());
 		  }
 
-		  virtual ~WebSocketConnection () {
+		  virtual ~ClientConnection () {
 			 if (_readData) delete [] _readData;
 			 if (_writeData) delete [] _writeData;
 		  }
 		} con_type;
 
 		typedef std::unordered_map<int, std::shared_ptr<con_type>> con_map_type;
-		typedef std::unordered_map<std::string, callback_type> cmd_map_type;
+		typedef std::unordered_map<uint32_t, callback_type> type_map_type;
 
 		LogTrait _logger;
 		uint64_t _capacity;
 		write_cb_type _set_write;
 		con_map_type _connections;
-		cmd_map_type _commands;
+		type_map_type _types;
 	 };
   }
 }
