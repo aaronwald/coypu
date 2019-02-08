@@ -242,7 +242,7 @@ class Display:
     async def snap_book(self, product):
         snap_req = cc.CoypuRequest()
         l = product.split('.')
-        max_levels = self.stdscr.getmaxyx()[0] - 5 
+        max_levels = self.stdscr.getmaxyx()[0] - 3
         snap_req.type = cc.CoypuRequest.BOOK_SNAPSHOT_REQUEST
         snap_req.snap.key = l[0]
         snap_req.snap.source = int(l[1])
@@ -265,21 +265,22 @@ class Display:
         if cm.type == cc.CoypuMessage.BOOK_SNAP:
             y = 2
             for level in cm.snap.bid:
+                self.stdscr.addch(y, 13, curses.ACS_VLINE)
                 f = "{:12.4f}".format(level.qty/100000000.0)
                 self.stdscr.addstr(y, 15, f)
                 f = "{:14.7f}".format(level.px/100000000.0)
                 self.stdscr.addstr(y, 28, f)
-                self.stdscr.addstr(y, 43, '.')
+                self.stdscr.addch(y, 43, curses.ACS_VLINE)
                 y = y + 1
 
             y = 2
             for level in cm.snap.ask:
-                self.stdscr.addstr(y, 43, '.')
+                self.stdscr.addch(y, 43, curses.ACS_VLINE)
                 f = "{:14.7f}".format(level.px/100000000.0)
                 self.stdscr.addstr(y, 45, f)
                 f = "{:12.4f}".format(level.qty/100000000.0)
                 self.stdscr.addstr(y, 60, f)
-
+                self.stdscr.addch(y, 73, curses.ACS_VLINE)
                 y = y + 1
         elif cm.type == cc.CoypuMessage.ERROR:
             self.stdscr.addstr(2,1,cm.error.error_msg, curses.color_pair(4))
