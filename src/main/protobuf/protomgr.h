@@ -85,10 +85,11 @@ namespace coypu {
 		int64_t _byteCount;
 	 };
 
-	 template <typename LogTrait>
+
+	 template <typename LogTrait, typename RequestTrait>
 		class ProtoManager {
 	 public:
-		typedef std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> callback_type;
+		typedef std::function<void(int, const RequestTrait &)> callback_type;
 		
 		typedef std::function<int(int)> write_cb_type;
 
@@ -116,15 +117,7 @@ namespace coypu {
 		  _connections.erase(fd);
 		  return 0;
 		}
-
-		bool RegisterType (const uint32_t type, callback_type cb) {
-		  if (_types.find(type) == _types.end()) {
-			 _types.insert(std::make_pair(type, cb));
-			 return true;
-		  }
-		  return false;
-		}
-
+		
 		int Read (int fd) {
 		  auto x = _connections.find(fd);
 		  if (x == _connections.end()) return -1;
@@ -132,37 +125,31 @@ namespace coypu {
 		  if (!con) return -2;
 
 		  int r = con->_readBuf->Readv(fd, con->_readv);
-				  
-		  if (con->_readBuf->Available() >= 0) {
+		  if (con->_readBuf->Available() >= 4) {
+
 			 if (con->_gSize == 0) {
-				// TODO Should be fixed
-				bool b = con->_gInStream->ReadVarint32(&con->_gSize);
-				if (!b) return r; // wait for more data
+				con->_readBuf->Pop(reinterpret_cast<char *>(&con->_gSize), 4);
+				con->_gSize = ntohl(con->_gSize);
 			 }
 
-			 if (con->_readBuf->Available() == 0) return r;
-			 
-			 if (con->_gType == 0) {
-				bool b = con->_gInStream->ReadVarint32(&con->_gType);
-				if (!b) return r; // wait for more data
-			 }
+			 if (con->_gSize > 0 && con->_readBuf->Available() >= con->_gSize) {
 
-			 if (con->_readBuf->Available() >= con->_gSize) {
-				google::protobuf::io::CodedInputStream::Limit limit =
-				  con->_gInStream->PushLimit(con->_gSize);
-
-				auto i = _types.find(con->_gType);
-				assert(i != _types.end());
-
-				if (i != _types.end()) {
-				  bool b = (*i).second(con->_gInStream);
-				  assert(b);
-				}
-
-				con->_gInStream->PopLimit(limit);
-				con->_gSize = 0;
-				con->_gType = 0;
+				proto_in_type gIn(con->_readBuf);
+				google::protobuf::io::CodedInputStream gInStream(&gIn);
 				
+				google::protobuf::io::CodedInputStream::Limit limit =
+				  gInStream.PushLimit(con->_gSize);
+
+				bool b = _request.MergeFromCodedStream(&gInStream);
+				assert(b);
+				assert(gInStream.ConsumedEntireMessage());
+
+				if (_cb) {
+				  _cb(con->_fd, _request);
+				}
+				
+				gInStream.PopLimit(limit);
+				con->_gSize = 0;
 			 }
 		  }
 
@@ -183,6 +170,10 @@ namespace coypu {
 		  // Can improve branching here if we just return is empty directly on the stack without another call
 		  return con->_writeBuf->IsEmpty() ? 0 : 1;
 		}
+
+		void SetCallback (callback_type &cb) {
+		  _cb = cb;
+		}
                 
 
 	 private:
@@ -199,26 +190,21 @@ namespace coypu {
 		  buf_sp_type _readBuf;
 		  buf_sp_type _writeBuf;
 
-		  std::shared_ptr<proto_in_type> _gIn;
-		  std::shared_ptr<google::protobuf::io::CodedInputStream> _gInStream;
 		  std::function<int(int,const struct iovec *,int)> _readv;
 		  std::function<int(int,const struct iovec *,int)> _writev;
 		  char * _readData;
 		  char * _writeData;
 		  uint32_t _gSize;
-		  uint32_t _gType;
 
 		  ClientConnection (int fd, 
 									  int capacity,
 									  std::function<int(int,const struct iovec *,int)> readv,
 									  std::function<int(int,const struct iovec *,int)> writev ) :
-		  _fd(fd), _readv(readv), _writev(writev), _gSize(0), _gType(0) { 
+		  _fd(fd), _readv(readv), _writev(writev), _gSize(0) { 
 			 _readData = new char[capacity];
 			 _writeData = new char[capacity];
 			 _readBuf = std::make_shared<buf_type>(_readData, capacity);
 			 _writeBuf = std::make_shared<buf_type>(_writeData, capacity);
-			 _gIn = std::make_shared<proto_in_type>(_readBuf);
-			 _gInStream = std::make_shared<google::protobuf::io::CodedInputStream>(_gIn.get());
 		  }
 
 		  virtual ~ClientConnection () {
@@ -228,13 +214,14 @@ namespace coypu {
 		} con_type;
 
 		typedef std::unordered_map<int, std::shared_ptr<con_type>> con_map_type;
-		typedef std::unordered_map<uint32_t, callback_type> type_map_type;
 
 		LogTrait _logger;
 		uint64_t _capacity;
 		write_cb_type _set_write;
 		con_map_type _connections;
-		type_map_type _types;
+
+		RequestTrait _request;
+		callback_type _cb;
 	 };
   }
 }

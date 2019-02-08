@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
+import struct 
+import socket
 import curses, curses.panel
 from websockets import connect
 import json
 import sys
 import logging
 import coincache_pb2 as cc
-from google.protobuf.internal.encoder import _VarintBytes
-from google.protobuf.internal.decoder import _DecodeVarint32
+from google.protobuf.internal.encoder import _VarintBytes, Fixed32Encoder  
+#from google.protobuf.internal.decoder import _DecodeVarint32
 
 async def coypu(display, host, port, offset):
     async with connect("ws://%s:%d/websocket" % (host, port), ping_interval=600, ping_timeout=10) as cws:
@@ -22,7 +24,7 @@ async def coypu(display, host, port, offset):
                 display.render(msg)
                 # await ?
             except Exception as e:
-                logging.getLogger('websockets').error(e)
+                logging.getLogger('websockets').exception("coypu", e)
     
 class Display:
     def __init__ (self, loop, snap_host, snap_port):
@@ -240,19 +242,18 @@ class Display:
 
 
     async def snap_book(self, product):
-        p = cc.CoinCache()
-        p.key = product
+        snap_req = cc.CoypuRequest()
+        l = product.split('.')
+        snap_req.type = cc.CoypuRequest.BOOK_SNAPSHOT_REQUEST
+        snap_req.snap.key = l[0]
+        snap_req.snap.source = int(l[1])
 
         reader, writer = await asyncio.open_connection(self.snap_host, self.snap_port, loop=self.loop)
-
-        type = 99 # CoinCache
-        size = p.ByteSize()
         log = logging.getLogger('websockets')
-        writer.write(_VarintBytes(size))
-        writer.write(_VarintBytes(type)) 
-        writer.write(p.SerializeToString())
-        #log.info("Write Size %d" % size)
-        
+
+        writer.write(struct.pack("!I", snap_req.ByteSize()))
+        writer.write(snap_req.SerializeToString())
+                             
         data = await reader.read(4) # read 4 bytes
 
         writer.close()
@@ -325,7 +326,7 @@ class Display:
                     self.redraw_screen()
                     self.blotter_refresh()
             except Exception as e:
-                logging.getLogger('websockets').error(e)
+                logging.getLogger('websockets').exception("get_ch", e)
 
                     
 if __name__ == '__main__':
@@ -343,12 +344,12 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO)
         
-    h = logging.FileHandler("client.log")
-
-    for l in ['websockets', 'asyncio']:
-        logger = logging.getLogger(l)
-        logger.setLevel(logging.INFO)
-        logger.addHandler(h)
+    fileh = logging.FileHandler("client.log")
+    fileh.setFormatter(logging.Formatter('%(asctime)s %(name)-12s: %(levelname)-8s %(message)s'))
+    logger = logging.getLogger('')
+    logger.setLevel(logging.INFO)
+    logger.addHandler(fileh)
+    logging.getLogger('websocket').info('foo')
 
     loop = asyncio.get_event_loop()
     
@@ -362,5 +363,5 @@ if __name__ == '__main__':
         try:
             loop.run_until_complete(task1)
         except Exception as e:
-            logging.getLogger('websockets').error(e)
+            logging.getLogger('websockets').exception("__main", e)
 

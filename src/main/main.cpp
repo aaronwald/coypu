@@ -148,7 +148,7 @@ typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 typedef AdminManager<LogType> AdminManagerType;
-typedef ProtoManager<LogType> ProtoManagerType;
+typedef ProtoManager<LogType, coypu::msg::CoypuRequest> ProtoManagerType;
 typedef OpenSSLManager <LogType> SSLType;
 typedef std::function<void(void)> CBType;
 typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
@@ -1505,15 +1505,11 @@ int main(int argc, char **argv)
   SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
   // test proto
-  std::function<bool(const std::shared_ptr<google::protobuf::io::CodedInputStream> &)> snapbook =
-	 [] (const std::shared_ptr<google::protobuf::io::CodedInputStream> &coded_in) -> bool {
-	 coypu::msg::CoinCache gCC;
-	 bool b = gCC.MergeFromCodedStream(coded_in.get());
-	 assert(b);
-	 std::cout << gCC.DebugString() << std::endl;
-	 return coded_in->ConsumedEntireMessage();
+  std::function<void(int, const coypu::msg::CoypuRequest &)> coypuRequestCB =
+	 [] (int fd, const coypu::msg::CoypuRequest &request) -> void {
+	 std::cout << request.DebugString() << std::endl;
   };
-  contextSP->_protoManager->RegisterType(99, snapbook);
+  contextSP->_protoManager->SetCallback(coypuRequestCB);
 	
   // watch out for threading on loggers
   std::thread t1(bar, contextSP, std::ref(done));

@@ -46,6 +46,17 @@ message Heartbeat {
 		  uint32 milliseconds  = 2;
 }
 
+message BookSnapshot {
+		  string key           = 1;
+		  uint32 source        = 2;		
+  		  uint32 levels		  = 3;	
+}
+
+message BookLevel {
+		  double qty = 1;
+		  double px = 2;
+}
+
 message CoypuMessage {
 		  enum Type {
 				 HEARTBEAT = 0;
@@ -56,5 +67,16 @@ message CoypuMessage {
 		  oneof message {
 		  		  CoypuTick tick = 2;
 				  CoypuTrade trade = 3;
+		  }
+}
+
+message CoypuRequest {
+		  enum Type {
+				 HEARTBEAT = 0;
+				 BOOK_SNAPSHOT_REQUEST = 1;
+		  }
+		  Type type = 1;
+		  oneof message {
+				  BookSnapshot snap = 2;
 		  }
 }

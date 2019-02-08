@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='coypu.msg',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x0f\x63oincache.proto\x12\tcoypu.msg\"\xab\x01\n\tCoinCache\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0f\n\x07seconds\x18\x04 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x05 \x01(\r\x12\x0e\n\x06high24\x18\x06 \x01(\x01\x12\r\n\x05low24\x18\x07 \x01(\x01\x12\r\n\x05vol24\x18\x08 \x01(\x01\x12\x0c\n\x04open\x18\t \x01(\x01\x12\x0c\n\x04last\x18\n \x01(\x01\"\xb3\x01\n\tCoypuTick\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\x0f\n\x07\x62id_qty\x18\x07 \x01(\x01\x12\x0e\n\x06\x62id_px\x18\x08 \x01(\x01\x12\x0f\n\x07\x61sk_qty\x18\t \x01(\x01\x12\x0e\n\x06\x61sk_px\x18\n \x01(\x01\"\xb7\x01\n\nCoypuTrade\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\r\n\x05vol24\x18\x07 \x01(\x01\x12\x0f\n\x07last_px\x18\x08 \x01(\x01\x12\x10\n\x08trade_id\x18\t \x01(\x04\x12\x11\n\tlast_size\x18\n \x01(\x01\"2\n\tHeartbeat\x12\x0f\n\x07seconds\x18\x01 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x02 \x01(\r\"\xbf\x01\n\x0c\x43oypuMessage\x12*\n\x04type\x18\x01 \x01(\x0e\x32\x1c.coypu.msg.CoypuMessage.Type\x12$\n\x04tick\x18\x02 \x01(\x0b\x32\x14.coypu.msg.CoypuTickH\x00\x12&\n\x05trade\x18\x03 \x01(\x0b\x32\x15.coypu.msg.CoypuTradeH\x00\"*\n\x04Type\x12\r\n\tHEARTBEAT\x10\x00\x12\x08\n\x04TICK\x10\x01\x12\t\n\x05TRADE\x10\x02\x42\t\n\x07messageb\x06proto3')
+  serialized_pb=_b('\n\x0f\x63oincache.proto\x12\tcoypu.msg\"\xab\x01\n\tCoinCache\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0f\n\x07seconds\x18\x04 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x05 \x01(\r\x12\x0e\n\x06high24\x18\x06 \x01(\x01\x12\r\n\x05low24\x18\x07 \x01(\x01\x12\r\n\x05vol24\x18\x08 \x01(\x01\x12\x0c\n\x04open\x18\t \x01(\x01\x12\x0c\n\x04last\x18\n \x01(\x01\"\xb3\x01\n\tCoypuTick\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\x0f\n\x07\x62id_qty\x18\x07 \x01(\x01\x12\x0e\n\x06\x62id_px\x18\x08 \x01(\x01\x12\x0f\n\x07\x61sk_qty\x18\t \x01(\x01\x12\x0e\n\x06\x61sk_px\x18\n \x01(\x01\"\xb7\x01\n\nCoypuTrade\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\r\n\x05vol24\x18\x07 \x01(\x01\x12\x0f\n\x07last_px\x18\x08 \x01(\x01\x12\x10\n\x08trade_id\x18\t \x01(\x04\x12\x11\n\tlast_size\x18\n \x01(\x01\"2\n\tHeartbeat\x12\x0f\n\x07seconds\x18\x01 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x02 \x01(\r\";\n\x0c\x42ookSnapshot\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x0e\n\x06source\x18\x02 \x01(\r\x12\x0e\n\x06levels\x18\x03 \x01(\r\"$\n\tBookLevel\x12\x0b\n\x03qty\x18\x01 \x01(\x01\x12\n\n\x02px\x18\x02 \x01(\x01\"\xbf\x01\n\x0c\x43oypuMessage\x12*\n\x04type\x18\x01 \x01(\x0e\x32\x1c.coypu.msg.CoypuMessage.Type\x12$\n\x04tick\x18\x02 \x01(\x0b\x32\x14.coypu.msg.CoypuTickH\x00\x12&\n\x05trade\x18\x03 \x01(\x0b\x32\x15.coypu.msg.CoypuTradeH\x00\"*\n\x04Type\x12\r\n\tHEARTBEAT\x10\x00\x12\x08\n\x04TICK\x10\x01\x12\t\n\x05TRADE\x10\x02\x42\t\n\x07message\"\xa0\x01\n\x0c\x43oypuRequest\x12*\n\x04type\x18\x01 \x01(\x0e\x32\x1c.coypu.msg.CoypuRequest.Type\x12\'\n\x04snap\x18\x02 \x01(\x0b\x32\x17.coypu.msg.BookSnapshotH\x00\"0\n\x04Type\x12\r\n\tHEARTBEAT\x10\x00\x12\x19\n\x15\x42OOK_SNAPSHOT_REQUEST\x10\x01\x42\t\n\x07messageb\x06proto3')
 )
 
 
@@ -45,10 +45,32 @@ _COYPUMESSAGE_TYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=763,
-  serialized_end=805,
+  serialized_start=862,
+  serialized_end=904,
 )
 _sym_db.RegisterEnumDescriptor(_COYPUMESSAGE_TYPE)
+
+_COYPUREQUEST_TYPE = _descriptor.EnumDescriptor(
+  name='Type',
+  full_name='coypu.msg.CoypuRequest.Type',
+  filename=None,
+  file=DESCRIPTOR,
+  values=[
+    _descriptor.EnumValueDescriptor(
+      name='HEARTBEAT', index=0, number=0,
+      serialized_options=None,
+      type=None),
+    _descriptor.EnumValueDescriptor(
+      name='BOOK_SNAPSHOT_REQUEST', index=1, number=1,
+      serialized_options=None,
+      type=None),
+  ],
+  containing_type=None,
+  serialized_options=None,
+  serialized_start=1019,
+  serialized_end=1067,
+)
+_sym_db.RegisterEnumDescriptor(_COYPUREQUEST_TYPE)
 
 
 _COINCACHE = _descriptor.Descriptor(
@@ -371,6 +393,89 @@ _HEARTBEAT = _descriptor.Descriptor(
 )
 
 
+_BOOKSNAPSHOT = _descriptor.Descriptor(
+  name='BookSnapshot',
+  full_name='coypu.msg.BookSnapshot',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='coypu.msg.BookSnapshot.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='source', full_name='coypu.msg.BookSnapshot.source', index=1,
+      number=2, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='levels', full_name='coypu.msg.BookSnapshot.levels', index=2,
+      number=3, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=624,
+  serialized_end=683,
+)
+
+
+_BOOKLEVEL = _descriptor.Descriptor(
+  name='BookLevel',
+  full_name='coypu.msg.BookLevel',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='qty', full_name='coypu.msg.BookLevel.qty', index=0,
+      number=1, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='px', full_name='coypu.msg.BookLevel.px', index=1,
+      number=2, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=685,
+  serialized_end=721,
+)
+
+
 _COYPUMESSAGE = _descriptor.Descriptor(
   name='CoypuMessage',
   full_name='coypu.msg.CoypuMessage',
@@ -415,8 +520,50 @@ _COYPUMESSAGE = _descriptor.Descriptor(
       name='message', full_name='coypu.msg.CoypuMessage.message',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=625,
-  serialized_end=816,
+  serialized_start=724,
+  serialized_end=915,
+)
+
+
+_COYPUREQUEST = _descriptor.Descriptor(
+  name='CoypuRequest',
+  full_name='coypu.msg.CoypuRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='type', full_name='coypu.msg.CoypuRequest.type', index=0,
+      number=1, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='snap', full_name='coypu.msg.CoypuRequest.snap', index=1,
+      number=2, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+    _COYPUREQUEST_TYPE,
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+    _descriptor.OneofDescriptor(
+      name='message', full_name='coypu.msg.CoypuRequest.message',
+      index=0, containing_type=None, fields=[]),
+  ],
+  serialized_start=918,
+  serialized_end=1078,
 )
 
 _COYPUMESSAGE.fields_by_name['type'].enum_type = _COYPUMESSAGE_TYPE
@@ -429,11 +576,20 @@ _COYPUMESSAGE.fields_by_name['tick'].containing_oneof = _COYPUMESSAGE.oneofs_by_
 _COYPUMESSAGE.oneofs_by_name['message'].fields.append(
   _COYPUMESSAGE.fields_by_name['trade'])
 _COYPUMESSAGE.fields_by_name['trade'].containing_oneof = _COYPUMESSAGE.oneofs_by_name['message']
+_COYPUREQUEST.fields_by_name['type'].enum_type = _COYPUREQUEST_TYPE
+_COYPUREQUEST.fields_by_name['snap'].message_type = _BOOKSNAPSHOT
+_COYPUREQUEST_TYPE.containing_type = _COYPUREQUEST
+_COYPUREQUEST.oneofs_by_name['message'].fields.append(
+  _COYPUREQUEST.fields_by_name['snap'])
+_COYPUREQUEST.fields_by_name['snap'].containing_oneof = _COYPUREQUEST.oneofs_by_name['message']
 DESCRIPTOR.message_types_by_name['CoinCache'] = _COINCACHE
 DESCRIPTOR.message_types_by_name['CoypuTick'] = _COYPUTICK
 DESCRIPTOR.message_types_by_name['CoypuTrade'] = _COYPUTRADE
 DESCRIPTOR.message_types_by_name['Heartbeat'] = _HEARTBEAT
+DESCRIPTOR.message_types_by_name['BookSnapshot'] = _BOOKSNAPSHOT
+DESCRIPTOR.message_types_by_name['BookLevel'] = _BOOKLEVEL
 DESCRIPTOR.message_types_by_name['CoypuMessage'] = _COYPUMESSAGE
+DESCRIPTOR.message_types_by_name['CoypuRequest'] = _COYPUREQUEST
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 CoinCache = _reflection.GeneratedProtocolMessageType('CoinCache', (_message.Message,), dict(
@@ -464,12 +620,33 @@ Heartbeat = _reflection.GeneratedProtocolMessageType('Heartbeat', (_message.Mess
   ))
 _sym_db.RegisterMessage(Heartbeat)
 
+BookSnapshot = _reflection.GeneratedProtocolMessageType('BookSnapshot', (_message.Message,), dict(
+  DESCRIPTOR = _BOOKSNAPSHOT,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.BookSnapshot)
+  ))
+_sym_db.RegisterMessage(BookSnapshot)
+
+BookLevel = _reflection.GeneratedProtocolMessageType('BookLevel', (_message.Message,), dict(
+  DESCRIPTOR = _BOOKLEVEL,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.BookLevel)
+  ))
+_sym_db.RegisterMessage(BookLevel)
+
 CoypuMessage = _reflection.GeneratedProtocolMessageType('CoypuMessage', (_message.Message,), dict(
   DESCRIPTOR = _COYPUMESSAGE,
   __module__ = 'coincache_pb2'
   # @@protoc_insertion_point(class_scope:coypu.msg.CoypuMessage)
   ))
 _sym_db.RegisterMessage(CoypuMessage)
+
+CoypuRequest = _reflection.GeneratedProtocolMessageType('CoypuRequest', (_message.Message,), dict(
+  DESCRIPTOR = _COYPUREQUEST,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.CoypuRequest)
+  ))
+_sym_db.RegisterMessage(CoypuRequest)
 
 
 # @@protoc_insertion_point(module_scope)

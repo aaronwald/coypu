@@ -3,10 +3,11 @@
 from websocket import create_connection
 import json
 import coincache_pb2 as cc
+import time
 
 if __name__ == "__main__":
     ws = create_connection("ws://localhost:8080/websocket")
-    ws.send(json.dumps({"cmd": "mark", "seqno": 0}))
+    ws.send(json.dumps({"cmd": "mark", "offset": 0}))
 
     count = 0
     while True:
@@ -14,8 +15,8 @@ if __name__ == "__main__":
         coypu_msg = cc.CoypuMessage()
         coypu_msg.ParseFromString(result)
         count = count + 1
-        if not count % 1000:
-            print(count)
+        if not count % 100000:
+            print(time.time(), count)
     ws.close()
     
 """
