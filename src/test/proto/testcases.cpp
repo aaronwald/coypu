@@ -89,7 +89,7 @@ TEST(ProtoTest, Test2)
   //ASSERT_TRUE(gCC.SerializeToZeroCopyStream(&zOutput));
 
   char key[32] = {};
-  LogZeroCopyOutputStream<stream_type> zOutput(&rwBuf);
+  LogZeroCopyOutputStream<stream_type *> zOutput(&rwBuf);
   google::protobuf::io::CodedOutputStream coded_output(&zOutput);
   int msgCount = 1024;
   for (int i = 0; i < msgCount; ++i) {
@@ -104,7 +104,7 @@ TEST(ProtoTest, Test2)
 	 ASSERT_TRUE(gCC.SerializeToCodedStream(&coded_output));
   }
 
-  LogZeroCopyInputStream<stream_type> zInput(&rwBuf);
+  LogZeroCopyInputStream<stream_type *> zInput(&rwBuf);
   google::protobuf::io::CodedInputStream coded_input(&zInput);
   for (int i = 0; i < msgCount; ++i) {
 	 coypu::msg::CoinCache gCC2;

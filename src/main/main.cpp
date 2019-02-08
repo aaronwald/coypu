@@ -43,6 +43,7 @@
 #include "util/backtrace.h"
 #include "admin/admin.h"
 #include "protobuf/protomgr.h"
+#include "protobuf/streams.h"
 
 #include "proto/coincache.pb.h"
 
@@ -173,6 +174,9 @@ typedef struct CoypuContextS {
 	 for (int i = 0; i < SOURCE_MAX; ++i) {
 		_bookSourceMap.push_back(std::make_shared<BookMapType>());
 	 }
+
+
+
   }
   CoypuContextS(const CoypuContextS &other) = delete;
   CoypuContextS &operator=(const CoypuContextS &other) = delete;
@@ -190,6 +194,7 @@ typedef struct CoypuContextS {
   std::shared_ptr <SSLType> _openSSLMgr;
 
   std::shared_ptr <PublishStreamType> _publishStreamSP;
+
   std::shared_ptr <PublishStreamType> _cacheStreamSP;
   std::shared_ptr <CacheType> _coinCache;
   std::shared_ptr <StreamType> _gdaxStreamSP;
@@ -771,6 +776,17 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  CoinLevel bid,ask;
 				  book->BestBid(bid);
 				  book->BestAsk(ask);
+
+				  coypu::msg::CoypuMessage cMsg;
+				  cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+				  coypu::msg::CoypuTick *tick = cMsg.mutable_tick();
+				  tick->set_key(product);
+				  tick->set_source(SOURCE_GDAX);
+				  tick->set_bid_qty(bid.qty);
+				  tick->set_bid_px(bid.px);
+				  tick->set_ask_qty(ask.qty);
+				  tick->set_ask_px(ask.px);
+
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", product, 
 												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_GDAX);
@@ -883,6 +899,27 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				//printf("%zu\n", (end-start));
 
 				if (tradeId != UINT64_MAX) {
+				  coypu::msg::CoypuMessage cMsg;
+				  cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+				  coypu::msg::CoypuTrade *trade = cMsg.mutable_trade();
+				  trade->set_key(product);
+				  trade->set_vol24(atof(vol24));
+				  trade->set_source(SOURCE_GDAX);
+				  trade->set_last_px(atof(px));
+				  trade->set_last_size(atof(lastSize));
+				  trade->set_trade_id(tradeId);
+
+				  /*
+				  	 LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+					 google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+  
+					 const int size = cMsg.ByteSize();
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, size);
+					 //size is in the websocket frame in this case
+					 //coded_output.WriteVarint32(size);
+					 cMsg.SerializeToCodedStream(&coded_output);
+				  */
+				  
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
@@ -920,8 +957,10 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
 						 const std::vector<std::string> &symbolList) {
   int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  assert(wsFD > 0);
   std::weak_ptr <CoypuContext> wContextSP = contextSP;
-
+  assert(contextSP);
+  
   if (wsFD < 0) {
 	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
 	 exit(1);
@@ -1045,6 +1084,16 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 					 const char * qty = trades[i][1].GetString();
 					 //					 uint64_t ipx = atof(px) * 100000000;
 					 //uint64_t iqty = atof(qty) * 100000000;
+
+					 coypu::msg::CoypuMessage cMsg;
+					 cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+					 coypu::msg::CoypuTrade *trade = cMsg.mutable_trade();
+					 trade->set_key(pair);
+					 trade->set_source(SOURCE_KRAKEN);
+					 trade->set_last_px(atof(px));
+					 trade->set_last_size(atof(qty));
+
+				  
 					 char pub[1024];
 					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s %d", pair.c_str(), px, qty, SOURCE_KRAKEN);
 					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
@@ -1151,10 +1200,21 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  if (bid.px > ask.px) {
 					 context->_consoleLogger->warn("Cross [{0}]", pair);
 				  }
+
+				  coypu::msg::CoypuMessage cMsg;
+				  cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+				  coypu::msg::CoypuTick *tick = cMsg.mutable_tick();
+				  tick->set_key(pair);
+				  tick->set_source(SOURCE_KRAKEN);
+				  tick->set_bid_qty(bid.qty);
+				  tick->set_bid_px(bid.px);
+				  tick->set_ask_qty(ask.qty);
+				  tick->set_ask_px(ask.px);
+				  
 				  
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", pair.c_str(), 
-												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_KRAKEN);
+												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_KRAKEN);				  
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 				  context->_publishStreamSP->Push(pub, len);
 				  context->_wsAnonManager->SetWriteAll();

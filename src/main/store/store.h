@@ -820,6 +820,14 @@ namespace coypu {
           return _stream->Push(data, len);
         }
 
+		  int ZeroCopyWriteNext (void **data, int *len) {
+			 return _stream->ZeroCopyWriteNext(data, len);
+		  }
+
+		  void ZeroCopyWriteBackup (int len) {
+			 _stream->ZeroCopyWriteBackup(len);
+		  }
+
         int Register (int fd, uint64_t offset) {
             _curOffsets.resize(fd+1, UINT64_MAX);
             _curOffsets[fd] = offset;

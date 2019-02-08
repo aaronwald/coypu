@@ -19,10 +19,32 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='coypu.msg',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x0f\x63oincache.proto\x12\tcoypu.msg\"\xab\x01\n\tCoinCache\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0f\n\x07seconds\x18\x04 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x05 \x01(\r\x12\x0e\n\x06high24\x18\x06 \x01(\x01\x12\r\n\x05low24\x18\x07 \x01(\x01\x12\r\n\x05vol24\x18\x08 \x01(\x01\x12\x0c\n\x04open\x18\t \x01(\x01\x12\x0c\n\x04last\x18\n \x01(\x01\x62\x06proto3')
+  serialized_pb=_b('\n\x0f\x63oincache.proto\x12\tcoypu.msg\"\xab\x01\n\tCoinCache\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0f\n\x07seconds\x18\x04 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x05 \x01(\r\x12\x0e\n\x06high24\x18\x06 \x01(\x01\x12\r\n\x05low24\x18\x07 \x01(\x01\x12\r\n\x05vol24\x18\x08 \x01(\x01\x12\x0c\n\x04open\x18\t \x01(\x01\x12\x0c\n\x04last\x18\n \x01(\x01\"\xb3\x01\n\tCoypuTick\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\x0f\n\x07\x62id_qty\x18\x07 \x01(\x01\x12\x0e\n\x06\x62id_px\x18\x08 \x01(\x01\x12\x0f\n\x07\x61sk_qty\x18\t \x01(\x01\x12\x0e\n\x06\x61sk_px\x18\n \x01(\x01\"\xb7\x01\n\nCoypuTrade\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05seqno\x18\x02 \x01(\x04\x12\x11\n\torigseqno\x18\x03 \x01(\x04\x12\x0e\n\x06source\x18\x04 \x01(\r\x12\x0f\n\x07seconds\x18\x05 \x01(\r\x12\x14\n\x0cmilliseconds\x18\x06 \x01(\r\x12\r\n\x05vol24\x18\x07 \x01(\x01\x12\x0f\n\x07last_px\x18\x08 \x01(\x01\x12\x10\n\x08trade_id\x18\t \x01(\x04\x12\x11\n\tlast_size\x18\n \x01(\x01\"\xb0\x01\n\x0c\x43oypuMessage\x12*\n\x04type\x18\x01 \x01(\x0e\x32\x1c.coypu.msg.CoypuMessage.Type\x12$\n\x04tick\x18\x02 \x01(\x0b\x32\x14.coypu.msg.CoypuTickH\x00\x12&\n\x05trade\x18\x03 \x01(\x0b\x32\x15.coypu.msg.CoypuTradeH\x00\"\x1b\n\x04Type\x12\x08\n\x04TICK\x10\x00\x12\t\n\x05TRADE\x10\x01\x42\t\n\x07messageb\x06proto3')
 )
 
 
+
+_COYPUMESSAGE_TYPE = _descriptor.EnumDescriptor(
+  name='Type',
+  full_name='coypu.msg.CoypuMessage.Type',
+  filename=None,
+  file=DESCRIPTOR,
+  values=[
+    _descriptor.EnumValueDescriptor(
+      name='TICK', index=0, number=0,
+      serialized_options=None,
+      type=None),
+    _descriptor.EnumValueDescriptor(
+      name='TRADE', index=1, number=1,
+      serialized_options=None,
+      type=None),
+  ],
+  containing_type=None,
+  serialized_options=None,
+  serialized_start=711,
+  serialized_end=738,
+)
+_sym_db.RegisterEnumDescriptor(_COYPUMESSAGE_TYPE)
 
 
 _COINCACHE = _descriptor.Descriptor(
@@ -118,7 +140,257 @@ _COINCACHE = _descriptor.Descriptor(
   serialized_end=202,
 )
 
+
+_COYPUTICK = _descriptor.Descriptor(
+  name='CoypuTick',
+  full_name='coypu.msg.CoypuTick',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='coypu.msg.CoypuTick.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='seqno', full_name='coypu.msg.CoypuTick.seqno', index=1,
+      number=2, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='origseqno', full_name='coypu.msg.CoypuTick.origseqno', index=2,
+      number=3, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='source', full_name='coypu.msg.CoypuTick.source', index=3,
+      number=4, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='seconds', full_name='coypu.msg.CoypuTick.seconds', index=4,
+      number=5, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='milliseconds', full_name='coypu.msg.CoypuTick.milliseconds', index=5,
+      number=6, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='bid_qty', full_name='coypu.msg.CoypuTick.bid_qty', index=6,
+      number=7, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='bid_px', full_name='coypu.msg.CoypuTick.bid_px', index=7,
+      number=8, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='ask_qty', full_name='coypu.msg.CoypuTick.ask_qty', index=8,
+      number=9, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='ask_px', full_name='coypu.msg.CoypuTick.ask_px', index=9,
+      number=10, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=205,
+  serialized_end=384,
+)
+
+
+_COYPUTRADE = _descriptor.Descriptor(
+  name='CoypuTrade',
+  full_name='coypu.msg.CoypuTrade',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='coypu.msg.CoypuTrade.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='seqno', full_name='coypu.msg.CoypuTrade.seqno', index=1,
+      number=2, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='origseqno', full_name='coypu.msg.CoypuTrade.origseqno', index=2,
+      number=3, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='source', full_name='coypu.msg.CoypuTrade.source', index=3,
+      number=4, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='seconds', full_name='coypu.msg.CoypuTrade.seconds', index=4,
+      number=5, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='milliseconds', full_name='coypu.msg.CoypuTrade.milliseconds', index=5,
+      number=6, type=13, cpp_type=3, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='vol24', full_name='coypu.msg.CoypuTrade.vol24', index=6,
+      number=7, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='last_px', full_name='coypu.msg.CoypuTrade.last_px', index=7,
+      number=8, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='trade_id', full_name='coypu.msg.CoypuTrade.trade_id', index=8,
+      number=9, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='last_size', full_name='coypu.msg.CoypuTrade.last_size', index=9,
+      number=10, type=1, cpp_type=5, label=1,
+      has_default_value=False, default_value=float(0),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=387,
+  serialized_end=570,
+)
+
+
+_COYPUMESSAGE = _descriptor.Descriptor(
+  name='CoypuMessage',
+  full_name='coypu.msg.CoypuMessage',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='type', full_name='coypu.msg.CoypuMessage.type', index=0,
+      number=1, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='tick', full_name='coypu.msg.CoypuMessage.tick', index=1,
+      number=2, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='trade', full_name='coypu.msg.CoypuMessage.trade', index=2,
+      number=3, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+    _COYPUMESSAGE_TYPE,
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+    _descriptor.OneofDescriptor(
+      name='message', full_name='coypu.msg.CoypuMessage.message',
+      index=0, containing_type=None, fields=[]),
+  ],
+  serialized_start=573,
+  serialized_end=749,
+)
+
+_COYPUMESSAGE.fields_by_name['type'].enum_type = _COYPUMESSAGE_TYPE
+_COYPUMESSAGE.fields_by_name['tick'].message_type = _COYPUTICK
+_COYPUMESSAGE.fields_by_name['trade'].message_type = _COYPUTRADE
+_COYPUMESSAGE_TYPE.containing_type = _COYPUMESSAGE
+_COYPUMESSAGE.oneofs_by_name['message'].fields.append(
+  _COYPUMESSAGE.fields_by_name['tick'])
+_COYPUMESSAGE.fields_by_name['tick'].containing_oneof = _COYPUMESSAGE.oneofs_by_name['message']
+_COYPUMESSAGE.oneofs_by_name['message'].fields.append(
+  _COYPUMESSAGE.fields_by_name['trade'])
+_COYPUMESSAGE.fields_by_name['trade'].containing_oneof = _COYPUMESSAGE.oneofs_by_name['message']
 DESCRIPTOR.message_types_by_name['CoinCache'] = _COINCACHE
+DESCRIPTOR.message_types_by_name['CoypuTick'] = _COYPUTICK
+DESCRIPTOR.message_types_by_name['CoypuTrade'] = _COYPUTRADE
+DESCRIPTOR.message_types_by_name['CoypuMessage'] = _COYPUMESSAGE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 CoinCache = _reflection.GeneratedProtocolMessageType('CoinCache', (_message.Message,), dict(
@@ -127,6 +399,27 @@ CoinCache = _reflection.GeneratedProtocolMessageType('CoinCache', (_message.Mess
   # @@protoc_insertion_point(class_scope:coypu.msg.CoinCache)
   ))
 _sym_db.RegisterMessage(CoinCache)
+
+CoypuTick = _reflection.GeneratedProtocolMessageType('CoypuTick', (_message.Message,), dict(
+  DESCRIPTOR = _COYPUTICK,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.CoypuTick)
+  ))
+_sym_db.RegisterMessage(CoypuTick)
+
+CoypuTrade = _reflection.GeneratedProtocolMessageType('CoypuTrade', (_message.Message,), dict(
+  DESCRIPTOR = _COYPUTRADE,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.CoypuTrade)
+  ))
+_sym_db.RegisterMessage(CoypuTrade)
+
+CoypuMessage = _reflection.GeneratedProtocolMessageType('CoypuMessage', (_message.Message,), dict(
+  DESCRIPTOR = _COYPUMESSAGE,
+  __module__ = 'coincache_pb2'
+  # @@protoc_insertion_point(class_scope:coypu.msg.CoypuMessage)
+  ))
+_sym_db.RegisterMessage(CoypuMessage)
 
 
 # @@protoc_insertion_point(module_scope)

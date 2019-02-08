@@ -10,7 +10,7 @@ namespace coypu {
 	 template <typename T>
 		class LogZeroCopyOutputStream : public google::protobuf::io::ZeroCopyOutputStream {
 	 public:
-	 LogZeroCopyOutputStream(T *t) : _t(t), _byteCount(0) { }
+	 LogZeroCopyOutputStream(T t) : _t(t), _byteCount(0) { }
 		virtual ~LogZeroCopyOutputStream () { }
 
 		bool Next(void ** data, int * size)  {
@@ -36,14 +36,14 @@ namespace coypu {
 		LogZeroCopyOutputStream (const LogZeroCopyOutputStream& other) = delete;
 		LogZeroCopyOutputStream &operator= (const LogZeroCopyOutputStream& other) = delete;
 
-		T *_t;
+		T _t;
 		int64_t _byteCount;
 	 };
 
 	 template <typename T>
 		class LogZeroCopyInputStream : public google::protobuf::io::ZeroCopyInputStream {
 	 public:
-	 LogZeroCopyInputStream(T *t) : _t(t), _byteCount(0) { }
+	 LogZeroCopyInputStream(T t) : _t(t), _byteCount(0) { }
 		virtual ~LogZeroCopyInputStream () { }
   
 		bool Next(const void ** data, int * size)  {
@@ -69,7 +69,7 @@ namespace coypu {
 		LogZeroCopyInputStream (const LogZeroCopyInputStream& other) = delete;
 		LogZeroCopyInputStream &operator= (const LogZeroCopyInputStream& other) = delete;
 
-		T *_t;
+		T _t;
 		int64_t _byteCount;
 	 };
   }

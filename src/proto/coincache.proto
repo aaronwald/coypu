@@ -14,3 +14,41 @@ message CoinCache {
 		  double open          = 9;
 		  double last          = 10;
 }
+
+message CoypuTick {
+		  string key           = 1;
+		  uint64 seqno         = 2;
+		  uint64 origseqno     = 3;
+		  uint32 source        = 4;
+  		  uint32 seconds		  = 5;
+		  uint32 milliseconds  = 6;
+		  double bid_qty       = 7;
+		  double bid_px        = 8;
+		  double ask_qty       = 9;
+		  double ask_px        = 10;
+}
+
+message CoypuTrade {
+		  string key           = 1;
+		  uint64 seqno         = 2;
+		  uint64 origseqno     = 3;
+		  uint32 source        = 4;
+  		  uint32 seconds		  = 5;
+		  uint32 milliseconds  = 6;
+		  double vol24         = 7;
+		  double last_px       = 8;
+		  uint64 trade_id      = 9;
+		  double last_size     = 10;
+}
+
+message CoypuMessage {
+		  enum Type {
+		  		 TICK = 0;
+				 TRADE = 1;
+		  }
+		  Type type = 1;
+		  oneof message {
+		  		  CoypuTick tick = 2;
+				  CoypuTrade trade = 3;
+		  }
+}
