@@ -108,11 +108,7 @@ do-gdax: true
 sandbox-kraken-host: "ws-sandbox.kraken.com"
 kraken-host: "ws.kraken.com"
 gdax-symbols:
-  - ETH-USD
-  
-ggdax-symbols:
   - MANA-USDC
-  - ETH-BTC
   - ETH-USD
   - LTC-BTC
   - LTC-USD

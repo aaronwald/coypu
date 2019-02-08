@@ -625,6 +625,7 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
 	 // Create a websocket message and persist
 	 char pub[1024];
 	 static int count = 0;
+	 // TODO Convert to proto buf
 	 size_t len = ::snprintf(pub, 1024, "Timer [%d]", count++);
 	 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 	 context->_publishStreamSP->Push(pub, len);
@@ -787,11 +788,18 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  tick->set_ask_qty(ask.qty);
 				  tick->set_ask_px(ask.px);
 
-				  char pub[1024];
-				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", product, 
-												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_GDAX);
-				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-				  context->_publishStreamSP->Push(pub, len);
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
+				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+				  cMsg.SerializeToCodedStream(&coded_output);
+
+				  /*
+					 char pub[1024];
+					 size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", product, 
+					 bid.qty, bid.px, ask.px, ask.qty, SOURCE_GDAX);
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+					 context->_publishStreamSP->Push(pub, len);
+				  */
 				  context->_wsAnonManager->SetWriteAll();
 				}
 			 } else if (!strcmp(type, "error")) {
@@ -900,7 +908,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
 				if (tradeId != UINT64_MAX) {
 				  coypu::msg::CoypuMessage cMsg;
-				  cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+				  cMsg.set_type(coypu::msg::CoypuMessage::TRADE);
 				  coypu::msg::CoypuTrade *trade = cMsg.mutable_trade();
 				  trade->set_key(product);
 				  trade->set_vol24(atof(vol24));
@@ -909,21 +917,17 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  trade->set_last_size(atof(lastSize));
 				  trade->set_trade_id(tradeId);
 
-				  /*
-				  	 LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
-					 google::protobuf::io::CodedOutputStream coded_output(&zOutput);
-  
-					 const int size = cMsg.ByteSize();
-					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, size);
-					 //size is in the websocket frame in this case
-					 //coded_output.WriteVarint32(size);
-					 cMsg.SerializeToCodedStream(&coded_output);
-				  */
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
+				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+				  cMsg.SerializeToCodedStream(&coded_output);
 				  
+				  /*
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
 				  context->_publishStreamSP->Push(pub, len);
+				  */
 				  context->_wsAnonManager->SetWriteAll();
 				}
 			 } else if (!strcmp(type, "subscriptions")) {
@@ -1093,11 +1097,17 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 					 trade->set_last_px(atof(px));
 					 trade->set_last_size(atof(qty));
 
-				  
-					 char pub[1024];
-					 size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s %d", pair.c_str(), px, qty, SOURCE_KRAKEN);
-					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-					 context->_publishStreamSP->Push(pub, len);
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
+					 LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+					 google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+					 cMsg.SerializeToCodedStream(&coded_output);
+
+					 /*
+						char pub[1024];
+						size_t len = ::snprintf(pub, 1024, "Trade %s 0 %s 0 %s %d", pair.c_str(), px, qty, SOURCE_KRAKEN);
+						WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+						context->_publishStreamSP->Push(pub, len);
+					 */
 					 context->_wsAnonManager->SetWriteAll();
 				  }
 				} else if (type == "ticker") {
@@ -1210,13 +1220,19 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 				  tick->set_bid_px(bid.px);
 				  tick->set_ask_qty(ask.qty);
 				  tick->set_ask_px(ask.px);
-				  
-				  
-				  char pub[1024];
-				  size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", pair.c_str(), 
-												  bid.qty, bid.px, ask.px, ask.qty, SOURCE_KRAKEN);				  
-				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
-				  context->_publishStreamSP->Push(pub, len);
+
+				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
+				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+				  cMsg.SerializeToCodedStream(&coded_output);
+
+				  /*
+					 char pub[1024];
+					 size_t len = ::snprintf(pub, 1024, "Tick %s %zu %zu %zu %zu %d", pair.c_str(), 
+					 bid.qty, bid.px, ask.px, ask.qty, SOURCE_KRAKEN);				  
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_TEXT_FRAME, false, len);
+					 context->_publishStreamSP->Push(pub, len);
+				  */
 				  context->_wsAnonManager->SetWriteAll();
 				} else {
 				  std::cerr << "unsupported " << type << std::endl;

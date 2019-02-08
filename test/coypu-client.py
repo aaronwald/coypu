@@ -194,42 +194,40 @@ class Display:
             self.blotter_pad.refresh(self.selected_row-self.height+1,0,0,0,self.height-1,self.width-1)
         else:
             self.blotter_pad.refresh(0,0,0,0,self.height-1,self.width-1)
-        
-    def render (self, doc):
-        self.seq_no = self.seq_no + 1
-#        self.blotter_pad.addstr(0,self.width-10, "{:d}".format(self.seq_no))
 
-        l = doc.split(' ')
-        if l[0] == "Trade":
-            product, last_y = self.init_product(product=l[1], source=l[6])
-                        
-            self.products[product]['vol'] = l[2]
-            self.products[product]['last'] = float(l[3])
-            self.products[product]['updates'] = self.products[product]['updates'] + 1
-            self.products[product]['tot_qty'] = self.products[product]['tot_qty'] + float(l[5])
-            self.draw_line(product)
-            self.blotter_refresh()
-            
-        elif l[0] == "Tick":
-            product, last_y = self.init_product(product=l[1], source=l[6])
+    def render (self, msg):
+        self.seq_no = self.seq_no + 1
+        cm = cc.CoypuMessage()
+        cm.ParseFromString(msg);
+
+        if cm.type == cc.CoypuMessage.TICK:
+            product, last_y = self.init_product(product=cm.tick.key, source=cm.tick.source)
             
             last = self.products[product]['last']
             prev = self.products[product]['prev']
             
             self.products[product]['updates'] = self.products[product]['updates'] + 1
             self.products[product]['prev'] = last
-            self.products[product]['last_bid'] = float(int(l[3]))/100000000.0
-            self.products[product]['last_ask'] = float(int(l[4]))/100000000.0
-            self.products[product]['last_bid_qty'] = float(int(l[2]))/100000000.0
-            self.products[product]['last_ask_qty'] = float(int(l[5]))/100000000.0
+            self.products[product]['last_bid'] = cm.tick.bid_px/100000000.0
+            self.products[product]['last_ask'] = cm.tick.ask_px/100000000.0
+            self.products[product]['last_bid_qty'] = cm.tick.bid_qty/100000000.0
+            self.products[product]['last_ask_qty'] = cm.tick.ask_qty/100000000.0
             
             if last < prev:
                 self.products[product]['last_color'] = curses.color_pair(1)
             elif last > prev:
                 self.products[product]['last_color'] = curses.color_pair(2)
+        elif cm.type == cc.CoypuMessage.TRADE:
+            product, last_y = self.init_product(product=cm.trade.key, source=cm.trade.source)
+                        
+            self.products[product]['vol'] = cm.trade.last_size
+            self.products[product]['last'] = cm.trade.last_px
+            self.products[product]['updates'] = self.products[product]['updates'] + 1
+            self.products[product]['tot_qty'] = self.products[product]['tot_qty'] + cm.trade.last_size
+            
+        self.draw_line(product)
+        self.blotter_refresh()
 
-            self.draw_line(product)
-            self.blotter_refresh()
 
     async def snap_book(self, product):
         p = cc.CoinCache()

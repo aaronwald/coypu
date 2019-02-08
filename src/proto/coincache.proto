@@ -41,10 +41,16 @@ message CoypuTrade {
 		  double last_size     = 10;
 }
 
+message Heartbeat {
+  		  uint32 seconds		  = 1;
+		  uint32 milliseconds  = 2;
+}
+
 message CoypuMessage {
 		  enum Type {
-		  		 TICK = 0;
-				 TRADE = 1;
+				 HEARTBEAT = 0;
+		  		 TICK = 1;
+				 TRADE = 2;
 		  }
 		  Type type = 1;
 		  oneof message {
