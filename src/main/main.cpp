@@ -1506,6 +1506,9 @@ int main(int argc, char **argv)
   // test proto
   std::function<void(int, coypu::msg::CoypuRequest &)> coypuRequestCB =
 	 [wContext] (int fd, coypu::msg::CoypuRequest &request) -> void {
+	 auto consoleLogger = spdlog::get("console");
+	 assert(consoleLogger);
+	 consoleLogger->info("Request {0}", request.DebugString());
 	 auto contextSP = wContext.lock();
 	 if (contextSP) {
 		coypu::msg::CoypuMessage cMsg;
@@ -1525,18 +1528,36 @@ int main(int argc, char **argv)
 				snap->set_source(s->source());
 				book->Snap(snap, s->levels());
 
-				int r = contextSP->_protoManager->WriteResponse(fd, cMsg);
-				if (r != 0) {
-				  // error
-				}
 			 } else {
-				// error
+				cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
+				coypu::msg::CoypuError *error = cMsg.mutable_error();
+				std::stringstream ss;
+				ss << "Book not found " << s->key() << " " << s->source();
+				error->set_error_msg(ss.str());
 			 }
 		  } else {
-			 // error
+			 cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
+			 coypu::msg::CoypuError *error = cMsg.mutable_error();
+			 std::stringstream ss;
+			 ss << "Unsupported source " << s->source();
+			 error->set_error_msg(ss.str());
 		  }
 		} else {
-		  // error
+		  cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
+		  coypu::msg::CoypuError *error = cMsg.mutable_error();
+		  std::stringstream ss;
+		  ss << "Unsupported request";
+		  error->set_error_msg(ss.str());
+		}
+
+		if (cMsg.type() == coypu::msg::CoypuMessage::ERROR) {
+		  consoleLogger->error("Response {0}", cMsg.DebugString());
+		} else {
+		  consoleLogger->debug("Response {0}", cMsg.DebugString());
+		}
+		int r = contextSP->_protoManager->WriteResponse(fd, cMsg);
+		if (r != 0) {
+		  consoleLogger->error("Failed to write response [{0]]", fd);
 		}
 	 }
   };

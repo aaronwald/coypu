@@ -246,6 +246,8 @@ class Display:
         snap_req.type = cc.CoypuRequest.BOOK_SNAPSHOT_REQUEST
         snap_req.snap.key = l[0]
         snap_req.snap.source = int(l[1])
+        if snap_req.snap.source == 1:
+            snap_req.snap.key = snap_req.snap.key.replace("/", "-")
         snap_req.snap.levels = max_levels
 
         reader, writer = await asyncio.open_connection(self.snap_host, self.snap_port, loop=self.loop)
@@ -279,9 +281,10 @@ class Display:
                 self.stdscr.addstr(y, 60, f)
 
                 y = y + 1
-
-            self.stdscr.refresh()
+        elif cm.type == cc.CoypuMessage.ERROR:
+            self.stdscr.addstr(2,1,cm.error.error_msg, curses.color_pair(4))
             
+        self.stdscr.refresh()    
         writer.close()
 
 
