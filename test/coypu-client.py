@@ -102,14 +102,14 @@ class Display:
 
         win = self.blotter_pad
         cols = [
-            [1, 10, "Ticker"],
-            [15, 12, "Bid Qty"],
-            [28, 14, "Bid Size"],
-            [45, 14, "Ask Size"],
-            [60, 12, "Ask Qty"],
-            [73, 16, "Spread"],
-            [90, 14, "Last"],
-            [105, 8, "Updates"],
+            [  1, 11, "Ticker"],
+            [ 15, 12, "Bid Qty"],
+            [ 28, 14, "Bid Size"],
+            [ 45, 14, "Ask Size"],
+            [ 60, 12, "Ask Qty"],
+            [ 73, 16, "Spread"],
+            [ 90, 14, "Last"],
+            [105,  8, "Updates"],
             [114, 14, "Volume"]
         ]
 
@@ -137,7 +137,7 @@ class Display:
         
         self.blotter_pad.addstr(y, 0, '>' if do_bold else ' ', curses.A_BOLD if do_bold else 0)
         self.blotter_pad.clrtoeol()
-        self.blotter_pad.addstr(y, 1, "{:>10s}".format(product), ca(self.COL_PRODUCT))
+        self.blotter_pad.addstr(y, 1, "{:>11s}".format(product), ca(self.COL_PRODUCT))
     
         f = "{:12.4f}".format(bid_qty)
         self.blotter_pad.addstr(y, 15, f, ca(self.COL_BID_QTY))
@@ -202,6 +202,13 @@ class Display:
 
         if cm.type == cc.CoypuMessage.TICK:
             product, last_y = self.init_product(product=cm.tick.key, source=cm.tick.source)
+            if cm.tick.source == 0:
+                log = logging.getLogger('websockets')
+                log.info(product)
+                log.info(cm.tick.key)
+                log.info(cm.tick.source)
+                log.info(cm)
+
             
             last = self.products[product]['last']
             prev = self.products[product]['prev']
@@ -218,6 +225,9 @@ class Display:
             elif last > prev:
                 self.products[product]['last_color'] = curses.color_pair(2)
         elif cm.type == cc.CoypuMessage.TRADE:
+            if cm.trade.source == 0:
+                log = logging.getLogger('websockets')
+                log.info(cm)
             product, last_y = self.init_product(product=cm.trade.key, source=cm.trade.source)
                         
             self.products[product]['vol'] = cm.trade.last_size

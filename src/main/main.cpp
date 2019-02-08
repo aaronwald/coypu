@@ -1090,7 +1090,7 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 					 //uint64_t iqty = atof(qty) * 100000000;
 
 					 coypu::msg::CoypuMessage cMsg;
-					 cMsg.set_type(coypu::msg::CoypuMessage::TICK);
+					 cMsg.set_type(coypu::msg::CoypuMessage::TRADE);
 					 coypu::msg::CoypuTrade *trade = cMsg.mutable_trade();
 					 trade->set_key(pair);
 					 trade->set_source(SOURCE_KRAKEN);

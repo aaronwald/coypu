@@ -14,7 +14,7 @@ Connection and stream to ws-feed.pro.coinbase.com [Coinbase Pro Market Data API]
 git clone https://github.com/Tencent/rapidjson.git
 mkdir build
 cd build
-cmake ..
+cmake -DCMAKE_BUILD_TYPE=Debug ..
 make
 ```
 
