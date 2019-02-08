@@ -9,8 +9,6 @@ import json
 import sys
 import logging
 import coincache_pb2 as cc
-from google.protobuf.internal.encoder import _VarintBytes, Fixed32Encoder  
-#from google.protobuf.internal.decoder import _DecodeVarint32
 
 async def coypu(display, host, port, offset):
     async with connect("ws://%s:%d/websocket" % (host, port), ping_interval=600, ping_timeout=10) as cws:
@@ -244,9 +242,11 @@ class Display:
     async def snap_book(self, product):
         snap_req = cc.CoypuRequest()
         l = product.split('.')
+        max_levels = self.stdscr.getmaxyx()[0] - 5 
         snap_req.type = cc.CoypuRequest.BOOK_SNAPSHOT_REQUEST
         snap_req.snap.key = l[0]
         snap_req.snap.source = int(l[1])
+        snap_req.snap.levels = max_levels
 
         reader, writer = await asyncio.open_connection(self.snap_host, self.snap_port, loop=self.loop)
         log = logging.getLogger('websockets')
@@ -255,7 +255,33 @@ class Display:
         writer.write(snap_req.SerializeToString())
                              
         data = await reader.read(4) # read 4 bytes
+        size = struct.unpack("!I", data)
 
+        data = await reader.read(size[0])
+        cm = cc.CoypuMessage()
+        cm.ParseFromString(data)
+        if cm.type == cc.CoypuMessage.BOOK_SNAP:
+            y = 2
+            for level in cm.snap.bid:
+                f = "{:12.4f}".format(level.qty/100000000.0)
+                self.stdscr.addstr(y, 15, f)
+                f = "{:14.7f}".format(level.px/100000000.0)
+                self.stdscr.addstr(y, 28, f)
+                self.stdscr.addstr(y, 43, '.')
+                y = y + 1
+
+            y = 2
+            for level in cm.snap.ask:
+                self.stdscr.addstr(y, 43, '.')
+                f = "{:14.7f}".format(level.px/100000000.0)
+                self.stdscr.addstr(y, 45, f)
+                f = "{:12.4f}".format(level.qty/100000000.0)
+                self.stdscr.addstr(y, 60, f)
+
+                y = y + 1
+
+            self.stdscr.refresh()
+            
         writer.close()
 
 
@@ -349,7 +375,6 @@ if __name__ == '__main__':
     logger = logging.getLogger('')
     logger.setLevel(logging.INFO)
     logger.addHandler(fileh)
-    logging.getLogger('websocket').info('foo')
 
     loop = asyncio.get_event_loop()
     

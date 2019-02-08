@@ -148,7 +148,7 @@ typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
 typedef std::unordered_map <std::string, std::shared_ptr<BookType> > BookMapType;
 typedef AdminManager<LogType> AdminManagerType;
-typedef ProtoManager<LogType, coypu::msg::CoypuRequest> ProtoManagerType;
+typedef ProtoManager<LogType, coypu::msg::CoypuRequest, coypu::msg::CoypuMessage> ProtoManagerType;
 typedef OpenSSLManager <LogType> SSLType;
 typedef std::function<void(void)> CBType;
 typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
@@ -789,7 +789,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  tick->set_ask_px(ask.px);
 
 				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
-				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+ 				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
 				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
 				  cMsg.SerializeToCodedStream(&coded_output);
 
@@ -1408,16 +1408,17 @@ int main(int argc, char **argv)
   }
   // END Signal
 
+  std::weak_ptr <CoypuContext> wContext = contextSP;
+
   // BEGIN Create websocket service
   std::string interface;
   config->GetValue("interface", interface);
   assert(!interface.empty());
   int sockFD = BindAndListen(consoleLogger, interface, 8080);
   if (sockFD > 0) {
-	 std::weak_ptr <CoypuContext> wContextSP = contextSP;
 
-	 coypu::event::callback_type acceptCB = [wContextSP, logger=consoleLogger](int fd) {
-		auto context = wContextSP.lock();
+	 coypu::event::callback_type acceptCB = [wContext, logger=consoleLogger](int fd) {
+		auto context = wContext.lock();
 		if (context) {
 		  AcceptWebsocketClient(context, logger, fd);
 		}
@@ -1437,7 +1438,6 @@ int main(int argc, char **argv)
   // GDAX BEGIN
   config->GetValue("do-gdax", doCB);
   if (doCB) {
-	 std::weak_ptr<CoypuContext> wContext = contextSP;
 	 std::vector <std::string> symbolList;
 	 std::vector <std::string> channelList;
 	 config->GetSeqValues("gdax-symbols", symbolList);
@@ -1466,7 +1466,6 @@ int main(int argc, char **argv)
   // Kracken BEGIN
   config->GetValue("do-kraken", doCB);
   if (doCB) {
-	 std::weak_ptr<CoypuContext> wContext = contextSP;
 	 std::vector <std::string> symbolList;
 	 config->GetSeqValues("kraken-symbols", symbolList);
 	 std::string kraken_hostname;
@@ -1505,9 +1504,41 @@ int main(int argc, char **argv)
   SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
   // test proto
-  std::function<void(int, const coypu::msg::CoypuRequest &)> coypuRequestCB =
-	 [] (int fd, const coypu::msg::CoypuRequest &request) -> void {
-	 std::cout << request.DebugString() << std::endl;
+  std::function<void(int, coypu::msg::CoypuRequest &)> coypuRequestCB =
+	 [wContext] (int fd, coypu::msg::CoypuRequest &request) -> void {
+	 auto contextSP = wContext.lock();
+	 if (contextSP) {
+		coypu::msg::CoypuMessage cMsg;
+
+		if (request.type() == coypu::msg::CoypuRequest::BOOK_SNAPSHOT_REQUEST) {
+		  coypu::msg::BookSnapshot *s = request.mutable_snap();
+		  if  (s->source() > SOURCE_UNKNOWN && s->source() < SOURCE_MAX) {
+			 std::shared_ptr<BookMapType> &bookMap = contextSP->_bookSourceMap[s->source()];
+			 auto b = bookMap->find(s->key());
+			 if (b != bookMap->end()) {
+				std::shared_ptr<BookType> &book = (*b).second;
+				assert(book);
+
+				cMsg.set_type(coypu::msg::CoypuMessage::BOOK_SNAP);
+				coypu::msg::CoypuBook *snap = cMsg.mutable_snap();
+				snap->set_key(s->key());
+				snap->set_source(s->source());
+				book->Snap(snap, s->levels());
+
+				int r = contextSP->_protoManager->WriteResponse(fd, cMsg);
+				if (r != 0) {
+				  // error
+				}
+			 } else {
+				// error
+			 }
+		  } else {
+			 // error
+		  }
+		} else {
+		  // error
+		}
+	 }
   };
   contextSP->_protoManager->SetCallback(coypuRequestCB);
 	

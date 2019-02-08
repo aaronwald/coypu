@@ -86,10 +86,10 @@ namespace coypu {
 	 };
 
 
-	 template <typename LogTrait, typename RequestTrait>
+	 template <typename LogTrait, typename RequestTrait, typename ResponseTrait>
 		class ProtoManager {
 	 public:
-		typedef std::function<void(int, const RequestTrait &)> callback_type;
+		typedef std::function<void(int, RequestTrait &)> callback_type;
 		
 		typedef std::function<int(int)> write_cb_type;
 
@@ -156,6 +156,26 @@ namespace coypu {
 		  return r;
 		}
 
+		int WriteResponse (int fd, const ResponseTrait &t) {
+		  auto x = _connections.find(fd);
+		  if (x == _connections.end()) return -1;
+		  std::shared_ptr<con_type> &con = (*x).second;
+		  if (!con) return -2;
+
+		  uint32_t size = htonl(t.ByteSize());
+		  bool b = con->_writeBuf->Push(reinterpret_cast<char *>(&size), sizeof(uint32_t));
+		  if (!b) return -1;
+		  
+		  proto_out_type gOut(con->_writeBuf);
+		  google::protobuf::io::CodedOutputStream gOutStream(&gOut);
+		  b = t.SerializeToCodedStream(&gOutStream);
+		  if (!b) return -2;
+		  _set_write(fd);
+
+		  return 0;
+		}
+		  
+
 		int Write (int fd) {
 		  auto x = _connections.find(fd);
 		  if (x == _connections.end()) return -1;
@@ -183,6 +203,7 @@ namespace coypu {
 		typedef coypu::buf::BipBuf <char, int> buf_type;
 		typedef std::shared_ptr<buf_type> buf_sp_type;
 		typedef BufZeroCopyInputStream<buf_sp_type> proto_in_type;
+		typedef BufZeroCopyOutputStream<buf_sp_type> proto_out_type;
 		
 		typedef struct ClientConnection {
 		  int _fd;

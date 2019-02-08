@@ -49,7 +49,7 @@ message Heartbeat {
 message BookSnapshot {
 		  string key           = 1;
 		  uint32 source        = 2;		
-  		  uint32 levels		  = 3;	
+  		  uint32 levels		  = 3;
 }
 
 message BookLevel {
@@ -57,19 +57,42 @@ message BookLevel {
 		  double px = 2;
 }
 
+message CoypuError {
+		  uint32 error_no      = 1;
+		  string error_msg     = 2;
+}
+
+message CoypuBook {
+		  string key           = 1;
+		  uint64 seqno         = 2;
+		  uint64 origseqno     = 3;
+		  uint32 source        = 4;
+  		  uint32 seconds		  = 5;
+		  uint32 milliseconds  = 6;
+
+		  repeated BookLevel bid = 7;
+		  repeated BookLevel ask = 8;
+}
+
+/* Message from the server */
 message CoypuMessage {
 		  enum Type {
 				 HEARTBEAT = 0;
 		  		 TICK = 1;
 				 TRADE = 2;
+				 BOOK_SNAP = 3;
+				 ERROR = 4;
 		  }
 		  Type type = 1;
 		  oneof message {
 		  		  CoypuTick tick = 2;
 				  CoypuTrade trade = 3;
+				  CoypuBook snap = 4;
+				  CoypuError error = 5;
 		  }
 }
 
+/* Request to the server */
 message CoypuRequest {
 		  enum Type {
 				 HEARTBEAT = 0;

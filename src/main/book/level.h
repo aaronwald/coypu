@@ -8,6 +8,7 @@
 #include <iostream>
 #include <functional>
 #include <algorithm>
+#include "proto/coincache.pb.h"
 
 namespace coypu
 {
@@ -259,6 +260,22 @@ public:
 		}
 	}
 
+	void Snap (coypu::msg::CoypuBook *outBook, int levels, bool isBidSide) {
+	  auto b = v.rbegin();
+	  auto e = v.rend();
+	  for (int i = 0; (levels == 0 || i < levels) && b != e; ++b, ++i) {
+		 coypu::msg::BookLevel *level = nullptr;
+		 if (isBidSide) {
+			level = outBook->add_bid();
+		 } else {
+			level = outBook->add_ask();
+		 }
+		 level->set_px((*b)->px);
+		 level->set_qty((*b)->qty);
+	  }
+
+	}
+
 	void Clear (std::vector <T *> &out) {
 	  std::copy(v.begin(), v.end(), std::back_inserter(out));
 	  v.clear();
@@ -377,6 +394,11 @@ public:
 	void Clear () {
 	  ClearBid();
 	  ClearAsk();
+	}
+
+	void Snap (coypu::msg::CoypuBook *outBook, int levels) {
+	  _bids.Snap(outBook, levels, true);
+	  _asks.Snap(outBook, levels, false);
 	}
 
 private:
