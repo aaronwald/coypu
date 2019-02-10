@@ -113,7 +113,9 @@ namespace coypu {
 												  SSL_CTX_get_verify_mode(_ctx),
 												  SSL_get_verify_mode(ssl));
 
-                        _fdToCon.resize(fd+1);
+								if (fd+1 > _fdToCon.size()) {
+								  _fdToCon.resize(fd+1);
+								}
                         _fdToCon[fd] = std::make_shared<SSLConnection>(fd, ssl);
 
                         SSL_set_fd(ssl, fd);

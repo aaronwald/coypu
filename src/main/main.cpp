@@ -953,7 +953,8 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
   // stream is associated with the fd. socket can only support one websocket connection at a time.
   std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
-		
+
+  contextSP->_gdaxStreamSP->ResetPosition();
   bool b = contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);
   assert(b);
   r = contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
@@ -1256,8 +1257,8 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
   // stream is associated with the fd. socket can only support one websocket connection at a time.
   std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
-  std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
-		
+
+  contextSP->_krakenStreamSP->ResetPosition();
   contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_krakenStreamSP, nullptr);	
   contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 

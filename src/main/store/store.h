@@ -790,7 +790,10 @@ namespace coypu {
           return false;
         }
 
-
+		  void ResetPosition () {
+			 _curOffset = _stream->Available();
+		  }
+				
         typename S::offset_type CurrentOffset() const {
           return _curOffset;
         }
@@ -829,7 +832,10 @@ namespace coypu {
 		  }
 
         int Register (int fd, uint64_t offset) {
+			 if (fd+1 > _curOffsets.size()) {
             _curOffsets.resize(fd+1, UINT64_MAX);
+			 }
+			 assert(_curOffsets[fd] == UINT64_MAX);
             _curOffsets[fd] = offset;
             return 0;
         }
