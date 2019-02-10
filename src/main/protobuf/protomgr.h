@@ -125,10 +125,14 @@ namespace coypu {
 		  if (!con) return -2;
 
 		  int r = con->_readBuf->Readv(fd, con->_readv);
-		  if (con->_readBuf->Available() >= 4) {
+		  int minBytes = 4; // compressed byte + length
+		  if (con->_readBuf->Available() >= minBytes) {
 
 			 if (con->_gSize == 0) {
-				con->_readBuf->Pop(reinterpret_cast<char *>(&con->_gSize), 4);
+				char isCompressed = 0;
+				con->_readBuf->Pop(&isCompressed, 1);
+				assert(isCompressed == 0); // Only support uncompressed 
+				con->_readBuf->Pop(reinterpret_cast<char *>(&con->_gSize), sizeof(con->_gSize));
 				con->_gSize = ntohl(con->_gSize);
 			 }
 
@@ -163,7 +167,9 @@ namespace coypu {
 		  if (!con) return -2;
 
 		  uint32_t size = htonl(t.ByteSize());
-		  bool b = con->_writeBuf->Push(reinterpret_cast<char *>(&size), sizeof(uint32_t));
+		  char compressed = 0;
+		  bool b =con->_writeBuf->Push(&compressed, 1);
+		  b = con->_writeBuf->Push(reinterpret_cast<char *>(&size), sizeof(uint32_t));
 		  if (!b) return -1;
 		  
 		  proto_out_type gOut(con->_writeBuf);

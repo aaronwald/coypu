@@ -253,13 +253,13 @@ class Display:
         reader, writer = await asyncio.open_connection(self.snap_host, self.snap_port, loop=self.loop)
         log = logging.getLogger('websockets')
 
-        writer.write(struct.pack("!I", snap_req.ByteSize()))
+        writer.write(struct.pack("!bI", 0, snap_req.ByteSize())) # 5 bytes
         writer.write(snap_req.SerializeToString())
                              
-        data = await reader.read(4) # read 4 bytes
-        size = struct.unpack("!I", data)
+        data = await reader.read(5) # read 4 bytes
+        size = struct.unpack("!bI", data)
 
-        data = await reader.read(size[0])
+        data = await reader.read(size[1])
         cm = cc.CoypuMessage()
         cm.ParseFromString(data)
         if cm.type == cc.CoypuMessage.BOOK_SNAP:
