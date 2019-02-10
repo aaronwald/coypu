@@ -11,6 +11,7 @@
 #include <functional>
 #include <sys/epoll.h>
 #include <deque>
+#include <set>
 
 #include "event_hlpr.h"
 
@@ -22,9 +23,8 @@ namespace  coypu
         template <typename LogTrait>
         class EventManager {
             public:
-                EventManager (LogTrait logger) : _fd(0), _logger(logger),
+			 EventManager (LogTrait logger) : _emptyCB(nullptr), _growSize(8), _fdToCB(_growSize, _emptyCB),_fd(0), _logger(logger),
                 _timeout(1000), _maxEvents(16), _outEvents(nullptr) {
-                    _closeList.reserve(_maxEvents);
                     _outEvents = reinterpret_cast<struct epoll_event *>(malloc(sizeof(struct epoll_event) * _maxEvents));
                 }
 
@@ -65,8 +65,12 @@ namespace  coypu
                     cb->_wf = write_func;
                     cb->_rf = read_func;
                     cb->_fd = fd;
-                    _fdToCB.resize(fd+1);
+						  while (_fdToCB.size() < fd+1) {
+							 _fdToCB.resize(_fdToCB.size()+_growSize, _emptyCB);
+						  }
+
                     assert(fd < _fdToCB.capacity());
+						  assert(_fdToCB[fd].get() == nullptr);
                     _fdToCB[fd] = cb;
 
                     event.data.fd = fd;
@@ -95,11 +99,9 @@ namespace  coypu
 
 
                 int Unregister (int fd) {
-                    int r = EPollHelper::Delete(_fd, fd); 
-                    
-                    if (r == 0) {
-                        _fdToCB[fd] = nullptr;
-                    }
+                    int r = EPollHelper::Delete(_fd, fd);
+						  _fdToCB[fd].reset();
+
                     return r;
                 }
 
@@ -110,15 +112,15 @@ namespace  coypu
                             _logger->warn("Hit epoll _maxEvents [{0}].", _maxEvents);
                         }
                         for (int i = 0; i < count; ++i) {
-                            std::shared_ptr<event_cb_type> &cb = _fdToCB[_outEvents[i].data.fd];
-                            assert(cb);
-
+									 std::shared_ptr<event_cb_type> &cb = _fdToCB[_outEvents[i].data.fd];
+									 assert(cb);
+									 
                             if (_outEvents[i].events & (EPOLLIN|EPOLLPRI)) {
                                 if (cb->_rf) {
                                     // ret < 0 : close                                    
                                     int ret = cb->_rf(cb->_fd);
                                     if (ret < 0) {
-                                        _closeList.push_back(cb->_fd);
+                                        _closeSet.insert(cb->_fd);
                                     }
                                 }
                             } 
@@ -128,29 +130,38 @@ namespace  coypu
                                     // ret < 0 : close
                                     // ret 0 : clear
                                     // ret > 0 : keep EPOLLOUT bit set
-                                    int ret = cb->_wf(cb->_fd);
-                                    if (ret < 0) {
-                                        _closeList.push_back(cb->_fd);
-                                    } if (ret == 0) {
-                                        ClearWrite(cb->_fd);
-                                    }
+											 int ret = cb->_wf(cb->_fd);
+											 if (ret < 0) {
+												_closeSet.insert(cb->_fd);
+											 }
+											 if (ret == 0) {
+												ClearWrite(cb->_fd);
+											 }
                                 }
                             }   
                             
                             if (_outEvents[i].events & (EPOLLHUP|EPOLLERR|EPOLLRDHUP)) {
-                                if (cb->_cf) {
-                                    cb->_cf(cb->_fd);
-                                }
-                                _closeList.push_back(cb->_fd);
+                                _closeSet.insert(cb->_fd);
 										  ::close(cb->_fd);
-                            } 
+                            }
                         }
 
-                        for (int i = 0; i < _closeList.size(); ++i) {
-                            Unregister(_closeList[i]);
-                        }
+								if (!_closeSet.empty()) {
+								  auto e = _closeSet.end();
+								  for (auto b = _closeSet.begin(); b != e; ++b) {
+                            std::shared_ptr<event_cb_type> &cb = _fdToCB[*b];
+                            assert(cb);
 
-                        _closeList.clear();
+									 if (cb->_cf) {
+										cb->_cf(cb->_fd);
+										cb->_cf = nullptr; // fire once
+									 }
+									 
+                            Unregister(*b);
+								  }
+								}
+
+                        _closeSet.clear();
                     } else if (count < 0) {
 							 if (errno == EINTR) {
 								_logger->perror(errno, "epoll_wait");
@@ -175,6 +186,8 @@ namespace  coypu
                     int _fd;
                 } event_cb_type;
 
+					 std::shared_ptr<event_cb_type> _emptyCB;
+					 uint32_t _growSize;
                 std::vector <std::shared_ptr<event_cb_type>> _fdToCB;
 
                 int _fd;
@@ -183,7 +196,7 @@ namespace  coypu
                 int _timeout;
                 int _maxEvents;
                 struct epoll_event * _outEvents;
-                std::vector <int> _closeList;
+                std::set <int> _closeSet;
 
         };
 

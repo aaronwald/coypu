@@ -299,9 +299,7 @@ class Display:
                     if not self.show_book:
                         self.height=1
                         self.show_book = True
-                        product = self.row_product_map[self.selected_row]
-
-                        f = self.loop.create_task(self.snap_book(product))
+                        self.loop.create_task(self.snap_book(self.row_product_map[self.selected_row]))
                     else:
                         self.height,self.width = self.stdscr.getmaxyx()
                         self.show_book = False
@@ -309,7 +307,11 @@ class Display:
                     self.stdscr.clear()
                     self.stdscr.refresh()
                     self.blotter_refresh()
-                    
+                elif char == ord('r'):
+                    if self.show_book:
+                        self.stdscr.clear()
+                        self.stdscr.refresh()
+                        self.loop.create_task(self.snap_book(self.row_product_map[self.selected_row]))
                 elif char == ord('h'):
                     self.row_product_map = self.sort_lines(False)
                 elif char == ord('H'):
@@ -323,12 +325,21 @@ class Display:
                         self.selected_row += 1
                         self.draw_line(self.row_product_map[self.selected_row])
                         self.blotter_refresh()
+
+                    if self.show_book:
+                        self.stdscr.clear()
+                        self.stdscr.refresh()
+                        self.loop.create_task(self.snap_book(self.row_product_map[self.selected_row]))
                 elif char == curses.KEY_UP:
                     if self.selected_row > 0:
                         self.draw_line(self.row_product_map[self.selected_row], True)
                         self.selected_row -= 1
                         self.draw_line(self.row_product_map[self.selected_row])
                         self.blotter_refresh()
+                    if self.show_book:
+                        self.stdscr.clear()
+                        self.stdscr.refresh()
+                        self.loop.create_task(self.snap_book(self.row_product_map[self.selected_row]))
                 elif char == curses.KEY_PPAGE:
                     self.draw_line(self.row_product_map[self.selected_row], True)
                     self.selected_row = 1

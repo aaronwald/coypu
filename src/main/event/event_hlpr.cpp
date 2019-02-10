@@ -4,6 +4,7 @@
 #include <sys/eventfd.h>
 #include <sys/signalfd.h>
 #include <string.h>
+#include <iostream>
 
 #include "event_hlpr.h"
 
@@ -15,6 +16,7 @@ int EPollHelper::Create (int flags) {
 }
 
 int EPollHelper::Add (int efd, int fd, struct epoll_event *event) {
+  //  std::cout << "Add " << fd << std::endl;
     return ::epoll_ctl(efd, EPOLL_CTL_ADD, fd, event);
 }
 
@@ -23,6 +25,7 @@ int EPollHelper::Modify (int efd, int fd, struct epoll_event *event) {
 }
 
 int EPollHelper::Delete (int efd, int fd) {
+  //  std::cout << "Delete " << fd  << std::endl;
     return ::epoll_ctl(efd, EPOLL_CTL_DEL, fd, nullptr);
 }
 

@@ -649,20 +649,20 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
   if (wsFD < 0) {
 	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
-	 exit(1);
+	 return;
   }
   int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
   assert(r == 0);
   r= TCPHelper::SetNoDelay(wsFD);
   assert(r == 0);
 
-  contextSP->_openSSLMgr->Register(wsFD);
+  r = contextSP->_openSSLMgr->Register(wsFD);
+  assert(r == 0);
 
   std::function <int(int,const struct iovec*,int)> sslReadCB =
 	 std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
   std::function <int(int,const struct iovec *,int)> sslWriteCB =
 	 std::bind(&SSLType::WritevNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
-
   
   std::function <void(int)> onOpen = [wContextSP, symbolList, channelList] (int fd) {
 	 auto context = wContextSP.lock();
@@ -682,12 +682,13 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
   std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
+		context->_consoleLogger->info("Close GDAX [{0}]", fd);
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
 		context->_cbManager->Queue(CE_BOOK_CLEAR_GDAX);
 		context->_cbManager->Queue(CE_WS_CONNECT_GDAX);
+		
 	 }
-
 
 	 return 0;
   };
@@ -708,9 +709,14 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 			 unsigned int junk= 0;
 			 start = __rdtscp(&junk);
 			 jd.Parse(jsonDoc);
+			 if (jd.HasParseError()) {
+				context->_consoleLogger->error(jsonDoc);
+				context->_consoleLogger->error("JSON Error [{0}]",
+														 GetParseError_En(jd.GetParseError()));
+			 }
+			 assert(!jd.HasParseError());
 			 end = __rdtscp(&junk);
 			 //printf("%zu\n", (end-start));
-					 
 
 			 const char * type = jd["type"].GetString();
 			 if (!strcmp(type, "snapshot")) {
@@ -947,15 +953,18 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
   // stream is associated with the fd. socket can only support one websocket connection at a time.
   std::function<int(int)> wsReadCB = std::bind(&WebSocketManagerType::Read, contextSP->_wsManager, std::placeholders::_1);
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
-  std::function<int(int)> wsCloseCB = std::bind(&WebSocketManagerType::Unregister, contextSP->_wsManager, std::placeholders::_1);
 		
-  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);	
-  contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+  bool b = contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);
+  assert(b);
+  r = contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+  assert(r == 0);
 
   // Sets the end-point
   char uri[1024];
   snprintf(uri, 1024, "http://%s", hostname.c_str());
-  contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
+  b = contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
+  assert(b);
+  contextSP->_consoleLogger->info("Request stream URI[{0}]", uri);
 }
 
 void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
@@ -1508,7 +1517,9 @@ int main(int argc, char **argv)
 	 [wContext] (int fd, coypu::msg::CoypuRequest &request) -> void {
 	 auto consoleLogger = spdlog::get("console");
 	 assert(consoleLogger);
-	 consoleLogger->info("Request {0}", request.DebugString());
+
+	 const google::protobuf::EnumDescriptor *descriptor = coypu::msg::CoypuRequest_Type_descriptor();
+
 	 auto contextSP = wContext.lock();
 	 if (contextSP) {
 		coypu::msg::CoypuMessage cMsg;
@@ -1516,6 +1527,8 @@ int main(int argc, char **argv)
 		if (request.type() == coypu::msg::CoypuRequest::BOOK_SNAPSHOT_REQUEST) {
 		  coypu::msg::BookSnapshot *s = request.mutable_snap();
 		  if  (s->source() > SOURCE_UNKNOWN && s->source() < SOURCE_MAX) {
+			 consoleLogger->info("{0} {2} {1}", descriptor->FindValueByNumber(request.type())->name(),
+										s->source(), s->key());
 			 std::shared_ptr<BookMapType> &bookMap = contextSP->_bookSourceMap[s->source()];
 			 auto b = bookMap->find(s->key());
 			 if (b != bookMap->end()) {
@@ -1543,6 +1556,8 @@ int main(int argc, char **argv)
 			 error->set_error_msg(ss.str());
 		  }
 		} else {
+		  consoleLogger->error("Unsupported request {0}", descriptor->FindValueByNumber(request.type())->name());
+			 
 		  cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
 		  coypu::msg::CoypuError *error = cMsg.mutable_error();
 		  std::stringstream ss;

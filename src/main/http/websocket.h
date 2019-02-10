@@ -152,6 +152,8 @@ namespace coypu
                             }
                         }
 
+								assert(_connections.find(fd) == _connections.end());
+
                         return _connections.insert(p).second;
                     }
 
