@@ -16,7 +16,7 @@ coypu:
     logger: ws-logger
     cpu: 8
 
-do-kraken: true
+do-kraken: false
 kkraken-symbols:
   - ETH/USD
   
@@ -104,7 +104,7 @@ kraken-symbols:
   - XTZ/USD
   - XTZ/XBT
   
-do-gdax: true
+do-gdax: false
 sandbox-kraken-host: "ws-sandbox.kraken.com"
 kraken-host: "ws.kraken.com"
 gdax-symbols:

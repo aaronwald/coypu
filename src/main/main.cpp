@@ -44,7 +44,7 @@
 #include "admin/admin.h"
 #include "protobuf/protomgr.h"
 #include "protobuf/streams.h"
-
+#include "http2/http2.h"
 #include "proto/coincache.pb.h"
 
 using namespace rapidjson;
@@ -64,6 +64,7 @@ using namespace coypu::book;
 using namespace coypu::backtrace;
 using namespace coypu::admin;
 using namespace coypu::protobuf;
+using namespace coypu::http2;
 
 extern "C" void processRust(uint32_t);
 
@@ -143,6 +144,7 @@ typedef coypu::store::PositionedStream <AnonRWBufType> AnonStreamType;
 typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
 typedef coypu::http::websocket::WebSocketManager <LogType, AnonStreamType, PublishStreamType> AnonWebSocketManagerType;
+typedef coypu::http2::HTTP2Manager <LogType, AnonStreamType, PublishStreamType> HTTP2ManagerType;
 typedef LogWriteBuf<MMapShared> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
@@ -158,6 +160,7 @@ const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
 const std::string COYPU_DEFAULT_ADMIN_PORT = "9999";
 const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
+const std::string COYPU_DEFAULT_HTTP2_PORT = "8089";
 
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
@@ -167,6 +170,7 @@ typedef struct CoypuContextS {
 	 _set_write_ws = std::bind(&EventManagerType::SetWrite, _eventMgr, std::placeholders::_1);
 	 _wsManager = std::make_shared<WebSocketManagerType>(wsLogger, _set_write_ws);
 	 _wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, _set_write_ws);
+	 _http2Manager = std::make_shared<HTTP2ManagerType>(wsLogger, _set_write_ws);
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
 	 _protoManager = std::make_shared<ProtoManagerType>(wsLogger, _set_write_ws);
 	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/");
@@ -189,6 +193,7 @@ typedef struct CoypuContextS {
   std::function<int(int)> _set_write_ws;
   std::shared_ptr <WebSocketManagerType> _wsManager;
   std::shared_ptr <AnonWebSocketManagerType> _wsAnonManager;
+  std::shared_ptr <HTTP2ManagerType> _http2Manager;
   std::shared_ptr <AdminManagerType> _adminManager;
   std::shared_ptr <ProtoManagerType> _protoManager;
   std::shared_ptr <SSLType> _openSSLMgr;
@@ -638,6 +643,67 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
 	 */
   }
 }
+
+void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &logger, int fd) {
+  std::weak_ptr <CoypuContext> wContextSP = context;
+  struct sockaddr_in client_addr= {0};
+  socklen_t addrlen= sizeof(sockaddr_in);
+  
+  // using IP V4
+  int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
+  if (TCPHelper::SetNoDelay(clientfd)) {
+  }
+  
+  logger->info("accept http2 {0}", clientfd);
+  
+  if (context) {
+	 std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+	 context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
+	 
+	 uint64_t init_offset = UINT64_MAX;
+	 context->_publishStreamSP->Register(clientfd, init_offset);
+	 
+	 std::function<int(int)> readCB = std::bind(&HTTP2ManagerType::Read, context->_http2Manager, std::placeholders::_1);
+	 std::function<int(int)> writeCB = std::bind(&HTTP2ManagerType::Write, context->_http2Manager, std::placeholders::_1);
+	 std::function<int(int)> closeCB = [wContextSP] (int fd) {
+		auto context = wContextSP.lock();
+		if (context) {
+		  context->_publishStreamSP->Unregister(fd);
+		  context->_http2Manager->Unregister(fd);
+
+		  auto b = context->_txtBufs->find(fd);
+		  if (b != context->_txtBufs->end()) {
+			 context->_txtBufs->erase(b);
+		  }
+		}
+		return 0;
+	 };
+
+	 std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wContextSP, logger] (uint64_t offset, off64_t len) {
+		char jsonDoc[1024*1024] = {};
+		if (len < sizeof(jsonDoc)) {
+		  // sad copying but nice json library
+		  if(txtBuf->Pop(jsonDoc, offset, len)) {
+			 jsonDoc[len] = 0;
+			 logger->debug("{0} doc {1}", clientfd, jsonDoc);
+
+		  } else {
+			 logger->error("Pop failed");
+		  }
+		}
+		
+		return;
+	 };
+	 
+	 std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
+	 std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
+	 bool b = context->_http2Manager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);
+	 assert(b);
+	 int r = context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
+	 assert(r == 0);
+  }
+}
+
 
 void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
 					  const std::vector<std::string> &symbolList,
@@ -1442,6 +1508,28 @@ int main(int argc, char **argv)
 	 consoleLogger->error("Failed to create websocket fd");
   }
   // END Websocket service
+
+  // BEGIN Create HTTP2 service
+  std::string http2Port;
+  config->GetValue("http2-port", http2Port, COYPU_DEFAULT_HTTP2_PORT);
+  sockFD = BindAndListen(consoleLogger, interface, atoi(http2Port.c_str()));
+  if (sockFD > 0) {
+
+	 coypu::event::callback_type acceptCB = [wContext, logger=consoleLogger](int fd) {
+		auto context = wContext.lock();
+		if (context) {
+		  AcceptHTTP2Client(context, logger, fd);
+		}
+		return 0;
+	 };
+	  
+	 if (contextSP->_eventMgr->Register(sockFD, acceptCB, nullptr, nullptr)) {
+		consoleLogger->perror(errno, "Register");
+	 }
+  } else {
+	 consoleLogger->error("Failed to create websocket fd");
+  }
+  // END HTTP2 service
 
   bool doCB = false;
 

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package coypu.msg;
 
+option go_package="nutriasoft.com/coypu/msg";
+
 message CoinCache {
 		  string key           = 1;
 		  uint64 seqno         = 2;
@@ -102,4 +104,8 @@ message CoypuRequest {
 		  oneof message {
 				  BookSnapshot snap = 2;
 		  }
+}
+
+service CoypuService {
+		  rpc RequestData (CoypuRequest) returns (CoypuMessage);
 }
