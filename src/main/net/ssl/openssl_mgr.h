@@ -73,6 +73,8 @@ namespace coypu {
                             // a->error("SSL init failed.");
                             assert(false);
                         }
+								SSL_CTX_set_options(_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
+														  SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 								SSL_CTX_set_verify(_ctx, SSL_VERIFY_PEER, VerifyCTX);
 								SSL_CTX_load_verify_locations(_ctx, nullptr, CApath.c_str());
 								SSL_CTX_set_verify_depth(_ctx, 10); // 10?

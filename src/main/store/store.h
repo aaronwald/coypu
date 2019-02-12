@@ -11,6 +11,7 @@
 #include <deque>
 #include <memory>
 #include <streambuf>
+#include <type_traits>
 
 namespace coypu {
   namespace store {
@@ -708,6 +709,16 @@ namespace coypu {
           return cb(fd, iov, iov_i);
         }
 
+		  bool Backup (int count) {
+			 // nop - should be enable_if
+			 return true;
+		  }
+
+		  bool Skip (int count) {
+			 // nop - should be enable_if
+			 return true;
+		  }
+		  
       private:
         LogRWStream (const LogRWStream &other);
         LogRWStream &operator= (const LogRWStream &other);
@@ -723,10 +734,13 @@ namespace coypu {
         uint64_t _maxSize;       // max size, defaults unbound
     };
 
+
     // Keeps track of current read position in stream
     template <typename S>
     class PositionedStream {
       public:
+		//		constexpr static bool is_positioned = true;
+		
         PositionedStream (const std::shared_ptr<S> &stream) : _stream(stream),
           _curOffset(stream->Available()) {
         }
@@ -782,6 +796,14 @@ namespace coypu {
           return r;
         }
 
+		  bool Backup (typename S::offset_type  size) {
+			 if (size <= _curOffset) {
+				_curOffset -= size;
+				return true;
+			 }
+			 return false;
+		  }
+
         bool Skip (typename S::offset_type  size) {
           if (size <= Available()) {
             _curOffset += size;
@@ -797,6 +819,14 @@ namespace coypu {
         typename S::offset_type CurrentOffset() const {
           return _curOffset;
         }
+
+		  bool ZeroCopyReadNext (typename S::offset_type offset, const void **data, int *len) {
+			 bool b =  _stream->ZeroCopyReadNext(offset, data, len);
+			 if (b) {
+				_curOffset += *len;
+			 }
+			 return b;
+		  }
         
       private:
         PositionedStream (const PositionedStream &other);

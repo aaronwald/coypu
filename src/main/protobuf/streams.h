@@ -44,7 +44,14 @@ namespace coypu {
 		class LogZeroCopyInputStream : public google::protobuf::io::ZeroCopyInputStream {
 	 public:
 	 LogZeroCopyInputStream(T t) : _t(t), _byteCount(0) { }
-		virtual ~LogZeroCopyInputStream () { }
+	 LogZeroCopyInputStream(T t, int offset) : _t(t), _byteCount(offset) { }
+		
+		virtual ~LogZeroCopyInputStream () {
+		}
+
+		void SetPosition (int byteCount) {
+		  _byteCount = byteCount;
+		}
   
 		bool Next(const void ** data, int * size)  {
 		  bool b = _t->ZeroCopyReadNext(_byteCount, data, size);
@@ -53,10 +60,16 @@ namespace coypu {
 		}
 
 		void BackUp(int count) {
+		  // only if is positioned is true
+		  bool b = _t->Backup(count);
+		  assert(b);
 		  _byteCount -= count;
 		}
 
+			
 		bool Skip(int count) {
+		  		  // only if is positioned is true
+		  _t->Skip(count);
 		  _byteCount += count;
 		  return true;
 		}

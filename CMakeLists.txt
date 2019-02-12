@@ -90,6 +90,7 @@ target_link_libraries(coypu gcc)
 target_link_libraries(coypu coypurust)
 target_link_libraries(coypu protobuf)
 target_link_libraries(coypu coypuproto)
+target_link_libraries(coypu nghttp2)
 
 add_executable(nutra_bpf_load ${BPF_SRC})
 target_link_libraries(nutra_bpf_load elf)
@@ -114,6 +115,7 @@ target_link_libraries(coyputest gcc_s)
 target_link_libraries(coyputest gcc)
 target_link_libraries(coyputest protobuf)
 target_link_libraries(coyputest coypuproto)
+target_link_libraries(coyputest nghttp2)
 
 gtest_discover_tests(coyputest)
 

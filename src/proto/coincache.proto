@@ -91,6 +91,7 @@ message CoypuMessage {
 				  CoypuTrade trade = 3;
 				  CoypuBook snap = 4;
 				  CoypuError error = 5;
+				  uint32 hb = 6;
 		  }
 }
 
