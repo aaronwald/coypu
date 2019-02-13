@@ -22,7 +22,7 @@ async def coypu(display, host, port, offset):
                 display.render(msg)
                 # await ?
             except Exception as e:
-                logging.getLogger('websockets').exception("coypu", e)
+                logging.getLogger('websockets').exception(e)
     
 class Display:
     def __init__ (self, loop, snap_host, snap_port):
@@ -331,7 +331,7 @@ class Display:
                         self.stdscr.refresh()
                         self.loop.create_task(self.snap_book(self.row_product_map[self.selected_row]))
                 elif char == curses.KEY_UP:
-                    if self.selected_row > 0:
+                    if self.selected_row > 1:
                         self.draw_line(self.row_product_map[self.selected_row], True)
                         self.selected_row -= 1
                         self.draw_line(self.row_product_map[self.selected_row])
@@ -367,7 +367,7 @@ class Display:
                     self.redraw_screen()
                     self.blotter_refresh()
             except Exception as e:
-                logging.getLogger('websockets').exception("get_ch", e)
+                logging.getLogger('websockets').exception(e)
 
                     
 if __name__ == '__main__':
@@ -381,15 +381,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.verbose:
-        logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
+       logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.DEBUG)
     else:
-        logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO)
+       logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO)
         
     fileh = logging.FileHandler("client.log")
     fileh.setFormatter(logging.Formatter('%(asctime)s %(name)-12s: %(levelname)-8s %(message)s'))
     logger = logging.getLogger('')
     logger.setLevel(logging.INFO)
     logger.addHandler(fileh)
+
 
     loop = asyncio.get_event_loop()
     
@@ -403,5 +404,5 @@ if __name__ == '__main__':
         try:
             loop.run_until_complete(task1)
         except Exception as e:
-            logging.getLogger('websockets').exception("__main", e)
+            logging.getLogger('websockets').exception(e)
 

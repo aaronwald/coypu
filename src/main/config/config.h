@@ -134,8 +134,8 @@ namespace coypu {
             private:
                 CoypuConfig (const CoypuConfig &other) = delete;
                 CoypuConfig &operator= (const CoypuConfig &other) = delete;
-                CoypuConfig (CoypuConfigType type) : _type(type), _value(""), _isValue(false) {}
-                CoypuConfig (const std::string &value) : _type(CCT_SCALAR), _value(value), _isValue(false) {}
+                explicit CoypuConfig (CoypuConfigType type) : _type(type), _value(""), _isValue(false) {}
+                explicit CoypuConfig (const std::string &value) : _type(CCT_SCALAR), _value(value), _isValue(false) {}
 
 
                 CoypuConfigType _type;

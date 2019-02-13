@@ -677,7 +677,7 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
 		return 0;
 	 };
 
-	 std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, wContextSP, logger] (uint64_t offset, off64_t len) {
+	 std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, logger] (uint64_t offset, off64_t len) {
 		char jsonDoc[1024*1024] = {};
 		if (len < sizeof(jsonDoc)) {
 		  // sad copying but nice json library

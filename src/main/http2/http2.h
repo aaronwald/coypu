@@ -213,8 +213,8 @@ namespace coypu
 										  std::function<int(int,const struct iovec *,int)> writev,
 										  std::function <void(int)> onOpen,
 										  std::function <void(uint64_t, uint64_t)> onText,
-										  const std::shared_ptr<StreamTrait> stream,
-										  const std::shared_ptr<PublishTrait> publish) {
+										  std::shared_ptr<StreamTrait> &stream,
+										  std::shared_ptr<PublishTrait> &publish) {
 			 auto sp = std::make_shared<con_type>(fd, _capacity, !serverCon, serverCon, readv, writev, onOpen, onText, stream, publish);
 			 auto p = std::make_pair(fd, sp);
 			 sp->_state = H2_CS_CONNECTING;
@@ -336,12 +336,12 @@ namespace coypu
 			 std::function <void(uint64_t, uint64_t)> _onText;
 
 			 HTTP2Connection (int fd, uint64_t capacity, bool masked, bool server,
-									std::function<int(int,const struct iovec *,int)> readv,
-									std::function<int(int,const struct iovec *,int)> writev,
+									std::function<int(int,const struct iovec *,int)> &readv,
+									std::function<int(int,const struct iovec *,int)> &writev,
 									std::function <void(int)> onOpen,
 									std::function <void(uint64_t, uint64_t)> onText,
-									std::shared_ptr<StreamTrait> stream,
-									std::shared_ptr<PublishTrait> publish) :
+									std::shared_ptr<StreamTrait> &stream,
+									std::shared_ptr<PublishTrait> &publish) :
 			 _fd(fd), _stream(stream), _publish(publish), _hdr({}), _frameCount(0), _readData(nullptr), _writeData(nullptr), 
 				_state(H2_CS_UNKNOWN), _server(server), _readv(readv), _writev(writev),
 				_onOpen(onOpen), _onText(onText) {

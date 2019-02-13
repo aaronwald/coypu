@@ -99,8 +99,6 @@ target_link_libraries(nutra_bpf_load elf)
 
 add_executable(coyputest ${COYPU_TEST_SRC} ${COYPU_SRC})
 target_link_libraries(coyputest yaml)
-target_link_libraries(coyputest glog)
-target_link_libraries(coyputest gflags)
 target_link_libraries(coyputest gtest)
 target_link_libraries(coyputest gmock)
 target_link_libraries(coyputest pthread)

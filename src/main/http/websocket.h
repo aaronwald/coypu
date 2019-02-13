@@ -389,7 +389,7 @@ namespace coypu
 										 std::shared_ptr<StreamTrait> stream,
 										 std::shared_ptr<PublishTrait> publish) :
 			 _fd(fd), _stream(stream), _publish(publish), _readData(nullptr), _writeData(nullptr), 
-				_state(WS_CS_UNKNOWN), _masked(masked), _server(server), _readv(readv), _writev(writev),
+				_state(WS_CS_UNKNOWN), _frame({}), _masked(masked), _server(server), _readv(readv), _writev(writev),
 				_onOpen(onOpen), _onText(onText) { 
 				_readData = new char[capacity];
 				_writeData = new char[capacity];
