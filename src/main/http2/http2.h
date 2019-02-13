@@ -65,8 +65,9 @@ namespace coypu
 			'\r', '\n', '\r', '\n'};
 
 
-		static constexpr const int HTTP2_INIT_SIZE = 24;
-		static constexpr const int HTTP2_FRAME_HDR_SIZE = 9;
+		static constexpr const int HTTP2_INIT_SIZE       = 24;
+		static constexpr const int HTTP2_FRAME_HDR_SIZE  = 9;
+		static constexpr const int HTTP2_HEADER_BUF_SIZE = 8192;
 		
 		// headers
 		// 9 bytes
@@ -118,13 +119,10 @@ namespace coypu
 		  }
 
 		  void SetLength (uint32_t inlen) {
-			 std::cout << inlen << std::endl;
 			 len[0] = 0xFF & (inlen >> 16);
 			 len[1] = 0xFF & (inlen >> 8);
 			 len[2] = 0xFF & inlen;
-			 std::cout << (int) len[0] << std::endl;
-			 std::cout << (int) len[1] << std::endl;
-			 std::cout << (int) len[2] << std::endl;
+
 		  }
 		} __attribute__((packed));
 
@@ -184,18 +182,29 @@ namespace coypu
 		};
 
 		// Simple GRPC + HTTP2 Support
-		template <typename LogTrait, typename StreamTrait, typename PublishTrait>
-		  class HTTP2Manager {
+		template <typename LogTrait, typename StreamTrait, typename PublishTrait, typename RequestTrait, typename ResponseTrait>
+		  class HTTP2GRPCManager {
 		public:
 		  typedef std::function<int(int)> write_cb_type;
+		  typedef std::function<ResponseTrait (RequestTrait &)> request_cb_type;
 
-		  HTTP2Manager (LogTrait logger, 
-								  write_cb_type set_write) : _logger(logger),
-			 _capacity(INITIAL_SETTINGS_MAX_FRAME_SIZE*2), _set_write(set_write)  {
+		  HTTP2GRPCManager (LogTrait logger, 
+								  write_cb_type set_write,
+								  const std::string &path ) : _logger(logger),
+			 _capacity(INITIAL_SETTINGS_MAX_FRAME_SIZE*2), _set_write(set_write), _inflater(nullptr), _path(path) {
 			 static_assert(sizeof(H2Header) == 9, "H2 Header Size");
+
+			 int rv = nghttp2_hd_inflate_new(&_inflater);
+			 if (rv != 0) {
+				_logger->error("nghttp2_hd_inflate_init failed with error: {0}", nghttp2_strerror(rv));
+				assert(false);
+			 }
 		  }
 
-		  virtual ~HTTP2Manager () {
+		  virtual ~HTTP2GRPCManager () {
+			 if (_inflater) {
+				nghttp2_hd_inflate_del(_inflater);
+			 }
 		  }
 
 		  bool RegisterConnection(int fd, 
@@ -298,6 +307,10 @@ namespace coypu
 			 std::for_each(_connections.begin(), _connections.end(),
 								[this] (const std::pair<int, std::shared_ptr<con_type>> p) { _set_write(p.first); });             
 		  }
+
+		  void SetRequestCB (request_cb_type &cb) {
+			 _cb = cb;
+		  }
 		  
 		private:
 		  typedef std::shared_ptr<StreamTrait> buf_sp_type;
@@ -353,6 +366,11 @@ namespace coypu
 		  LogTrait _logger;
 		  uint64_t _capacity;
 		  write_cb_type _set_write;
+		  nghttp2_hd_inflater * _inflater;
+		  std::string _path;
+		  
+		  RequestTrait _request;
+		  request_cb_type _cb;
 
 		  int inflate_header_block(nghttp2_hd_inflater *inflater, uint8_t *in,
 											size_t inlen, int final) {
@@ -376,10 +394,7 @@ namespace coypu
 				inlen -= proclen;
 				
 				if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
-				  fwrite(nv.name, 1, nv.namelen, stderr);
-				  fprintf(stderr, ": ");
-				  fwrite(nv.value, 1, nv.valuelen, stderr);
-				  fprintf(stderr, "\n");
+				  _logger->debug("{0} = {1}", nv.name, nv.value);
 				}
 				
 				if (inflate_flags & NGHTTP2_HD_INFLATE_FINAL) {
@@ -407,14 +422,10 @@ namespace coypu
 				  }
 				  
 				  con->_state = H2_CS_READ_FRAME;
-				  std::cout << "Frame type " << (int)con->_hdr.type << std::endl;
-				  std::cout << "Frame flags " << (int)con->_hdr.flags << std::endl;
-
 				  con->_hdr.id &= ~(1UL << 31); // ignore this bit when receiving
 				  //con->_hdr.id &= 0x7FFFFFFF; // ignore this bit when receiving
-				  
-				  std::cout << "Frame id " << std::hex << con->_hdr.id << std::dec << std::endl;
-				  
+
+				  _logger->debug("Frame Type[{0}] Flags [{1}] Id[{2}]", (int)con->_hdr.type, (int)con->_hdr.flags, con->_hdr.id);
 				} else {
 				  return 0; // more data
 				}
@@ -422,8 +433,6 @@ namespace coypu
 
 			 if (con->_state == H2_CS_READ_FRAME) {
 				uint32_t len = (con->_hdr.len[0] << 16) | (con->_hdr.len[1] << 8) | (con->_hdr.len[2]);
-				std::cout << "Read len " << len << std::endl;
- 
 				
 				if (len && con->_stream->Available() >= len) {
 				  // TODO Pop frame
@@ -434,134 +443,58 @@ namespace coypu
 				  
 				  if (con->_hdr.type == 1) {
 					 // header - use nghttp2 libs
-					 char data[1024];
+					 char data[HTTP2_HEADER_BUF_SIZE];
+					 assert(len < HTTP2_HEADER_BUF_SIZE);
 					 con->_stream->Pop(data, len);
 
-					 nghttp2_hd_inflater *inflater;
-					 int rv = nghttp2_hd_inflate_new(&inflater);
-					 if (rv != 0) {
-						_logger->error("nghttp2_hd_inflate_init failed with error: {0}", nghttp2_strerror(rv));
-						return -1;
-					 }
-					 inflate_header_block(inflater, reinterpret_cast<uint8_t *>(data), len, 1);
-					 nghttp2_hd_inflate_del(inflater);
+
+					 // :path = /coypu.msg.CoypuService/RequestData
+					 // content-type = application/grpc
+
+					 inflate_header_block(_inflater, reinterpret_cast<uint8_t *>(data), len, 1);
 				  } else if (con->_hdr.type == 0) {
 					 // data
 					 char data[1024] = {};
 					 con->_stream->Pop(data, 5);
-					 assert(data[0] == 0);
+					 assert(data[0] == 0); // compressed byte
 
+					 // grpc len
 					 uint32_t grpcLen = ntohl(*(reinterpret_cast<uint32_t *>(&data[1])));
 
-					 /*
-						coypu::msg::CoypuRequest request;
-						std::string inStr(&data[5], grpcLen);
-						bool b = request.ParseFromString(inStr);
-						std::cout << request.DebugString() << std::endl;
-						assert(b);
-					 */
-
-					 if (con->_hdr.flags & H2_F_END_STREAM) {
-						std::cout << "End stream flag set" << std::endl;
-					 }
-					 
+					 // proto buf
 					 proto_in_type gIn(con->_stream, con->_stream->CurrentOffset());
 					 google::protobuf::io::CodedInputStream gInStream(&gIn);
 
 					 google::protobuf::io::CodedInputStream::Limit limit =
 						gInStream.PushLimit(grpcLen);
 
-					 coypu::msg::CoypuRequest request;
-					 bool b = request.MergeFromCodedStream(&gInStream);
+					 bool b = _request.MergeFromCodedStream(&gInStream);
 					 assert(b);
-					 std::cout << request.DebugString() << std::endl;
 					 
 					 assert(gInStream.ConsumedEntireMessage());
 					 gInStream.PopLimit(limit);
 
-					 coypu::msg::CoypuMessage cMsg;
-					 cMsg.set_type(coypu::msg::CoypuMessage::HEARTBEAT);
-					 cMsg.set_hb(555);
+					 assert(_cb);
+					 ResponseTrait response = _cb(_request); // hope for move
 
-
-					 //TODO Sends Headers (flags=END_HEADERS), Data, Headers
-					 // status:200
-					 //content-type = application/grpc+proto
-					 nghttp2_hd_deflater *deflater;
-					 int rv = nghttp2_hd_deflate_new(&deflater, 4096);
-					 if (rv != 0) {
-						_logger->error("nghttp2_hd_deflate_init failed with error: {0}", nghttp2_strerror(rv));
-						return -1;
-					 }
-					 
+					 // send begin header
 					 nghttp2_nv nva2[] = {MAKE_NV(":status", "200"),
 												 MAKE_NV("content-type", "application/grpc+proto")};
-					 size_t nvlen = sizeof(nva2) / sizeof(nva2[0]);
-					 size_t buflen = nghttp2_hd_deflate_bound(deflater, nva2, nvlen);
-					 uint8_t *buf = reinterpret_cast<uint8_t *>(malloc(buflen));
-					 if (buf) {
-						rv = nghttp2_hd_deflate_hd(deflater, buf, buflen, nva2, nvlen);
-						if (rv < 0) {
-						  _logger->error("nghttp2_hd_deflate_hd failed with error: {0}", nghttp2_strerror(rv));
-						} else {
-						  size_t outlen = (size_t)rv;
-						  std::cout << "Push " << outlen << std::endl;
-
-						  H2Header headers(H2_FT_HEADERS);
-						  headers.SetLength(outlen);
-						  headers.flags |= H2_F_END_HEADERS;
-						  headers.id = con->_hdr.id; // what should this be?
-						  SendFrame(con, headers, reinterpret_cast<char *>(buf), outlen);
-
-						}
-						
-						free(buf);
-					 }
-  
+					 SendHeaderFrame(con, nva2, sizeof(nva2) / sizeof(nva2[0]), H2_F_END_HEADERS);
 
 					 // Data Frame w/ END_STREAM flag
 					 std::string s;
-					 b = cMsg.SerializeToString(&s);
+					 b = response.SerializeToString(&s);
 					 assert(b);
-					 std::cout << "Len:" << s.length() << std::endl;
-					 for (char c : s) {
-						std::cout << "\t Debug Data " << (int)c << std::endl;
-					 }
+					 
 					 H2Header dataFrame(H2_FT_DATA);
 					 dataFrame.id = con->_hdr.id; // what should this be?
-					 // headers?f
 					 dataFrame.SetLength(5 + s.length());
-					 SendGRPCFrame(con, dataFrame, cMsg.ByteSize(), s.c_str(), s.length());
+					 SendGRPCFrame(con, dataFrame, response.ByteSize(), s.c_str(), s.length());
 
-					 //HEADERS (flags = END_STREAM, END_HEADERS)
-					 //grpc-status = 0 
-					 {
-						nghttp2_nv nva2[] = {MAKE_NV("grpc-status", "0")};
-						size_t nvlen = sizeof(nva2) / sizeof(nva2[0]);
-						size_t buflen = nghttp2_hd_deflate_bound(deflater, nva2, nvlen);
-						uint8_t *buf = reinterpret_cast<uint8_t *>(malloc(buflen));
-						if (buf) {
-						  rv = nghttp2_hd_deflate_hd(deflater, buf, buflen, nva2, nvlen);
-						  if (rv < 0) {
-							 _logger->error("nghttp2_hd_deflate_hd failed with error: {0}", nghttp2_strerror(rv));
-						  } else {
-							 size_t outlen = (size_t)rv;
-							 std::cout << "Push end header" << outlen << std::endl;
-							 
-							 H2Header headers(H2_FT_HEADERS);
-							 headers.SetLength(outlen);
-							 headers.flags |= H2_F_END_HEADERS;
-							 headers.flags |= H2_F_END_STREAM;
-							 headers.id = con->_hdr.id; // what should this be?
-							 SendFrame(con, headers, reinterpret_cast<char *>(buf), outlen);
-							 
-						  }
-						  
-						  free(buf);
-						}
-					 }
-					 nghttp2_hd_deflate_del(deflater);
-					 
+					 // send end header
+					 nghttp2_nv nva_end[] = {MAKE_NV("grpc-status", "0")};
+					 SendHeaderFrame(con, nva_end, sizeof(nva_end) / sizeof(nva_end[0]), H2_F_END_HEADERS | H2_F_END_STREAM);
 				  } else {
 					 con->_stream->Skip(len);
 				  }
@@ -643,6 +576,29 @@ namespace coypu
 				if (!b) return false;
 			 }
 			 _set_write(con->_fd);
+			 return true;
+		  }
+
+		  bool SendHeaderFrame (std::shared_ptr<con_type> &con, nghttp2_nv *nva, size_t nvlen, char flags) {
+			 nghttp2_hd_deflater * deflater;
+			 nghttp2_hd_deflate_new(&deflater, HTTP2_HEADER_BUF_SIZE);
+			 
+			 size_t buflen = nghttp2_hd_deflate_bound(deflater, nva, nvlen);
+			 uint8_t buf[HTTP2_HEADER_BUF_SIZE];
+			 ::memset(buf, 0, HTTP2_HEADER_BUF_SIZE);
+			 assert(buflen <= HTTP2_HEADER_BUF_SIZE);
+			 int rv = nghttp2_hd_deflate_hd(deflater, buf, buflen, nva, nvlen);
+			 if (rv < 0) {
+				_logger->error("nghttp2_hd_deflate_hd failed with error: {0}", nghttp2_strerror(rv));
+				return false;
+			 } 
+			 size_t outlen = (size_t)rv;
+			 H2Header headers(H2_FT_HEADERS);
+			 headers.SetLength(outlen);
+			 headers.flags |= flags;
+			 headers.id = con->_hdr.id; // what should this be?
+			 SendFrame(con, headers, reinterpret_cast<char *>(buf), outlen);
+			 nghttp2_hd_deflate_del(deflater);
 			 return true;
 		  }
 

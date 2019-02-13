@@ -74,7 +74,6 @@ link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
 add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
 add_dependencies(coypu rust_lib)
 
-target_link_libraries(coypu yaml)
 target_link_libraries(coypu pthread)
 target_link_libraries(coypu crypto)
 target_link_libraries(coypu ssl)
@@ -88,9 +87,12 @@ target_link_libraries(coypu c)
 target_link_libraries(coypu gcc_s)
 target_link_libraries(coypu gcc)
 target_link_libraries(coypu coypurust)
-target_link_libraries(coypu protobuf)
 target_link_libraries(coypu coypuproto)
+
+# third party
+target_link_libraries(coypu protobuf)
 target_link_libraries(coypu nghttp2)
+target_link_libraries(coypu yaml)
 
 add_executable(nutra_bpf_load ${BPF_SRC})
 target_link_libraries(nutra_bpf_load elf)

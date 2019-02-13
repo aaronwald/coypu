@@ -104,7 +104,7 @@ kraken-symbols:
   - XTZ/USD
   - XTZ/XBT
   
-do-gdax: false
+do-gdax: true
 sandbox-kraken-host: "ws-sandbox.kraken.com"
 kraken-host: "ws.kraken.com"
 gdax-symbols:

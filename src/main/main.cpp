@@ -144,7 +144,7 @@ typedef coypu::store::PositionedStream <AnonRWBufType> AnonStreamType;
 typedef coypu::store::MultiPositionedStreamLog <RWBufType> PublishStreamType;
 typedef coypu::http::websocket::WebSocketManager <LogType, StreamType, PublishStreamType> WebSocketManagerType;
 typedef coypu::http::websocket::WebSocketManager <LogType, AnonStreamType, PublishStreamType> AnonWebSocketManagerType;
-typedef coypu::http2::HTTP2Manager <LogType, AnonStreamType, PublishStreamType> HTTP2ManagerType;
+typedef coypu::http2::HTTP2GRPCManager <LogType, AnonStreamType, PublishStreamType, coypu::msg::CoypuRequest, coypu::msg::CoypuMessage> HTTP2GRPCManagerType;
 typedef LogWriteBuf<MMapShared> StoreType;
 typedef SequenceCache<CoinCache, 128, PublishStreamType, void> CacheType;
 typedef CBook <CoinLevel, 4096*16>  BookType;
@@ -163,14 +163,14 @@ const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
 const std::string COYPU_DEFAULT_HTTP2_PORT = "8089";
 
 typedef struct CoypuContextS {
-  CoypuContextS (LogType &consoleLogger, LogType &wsLogger) {
+  CoypuContextS (LogType &consoleLogger, LogType &wsLogger, LogType&httpLogger, const std::string &grpcPath) {
 	 _consoleLogger = consoleLogger;
 	 _txtBufs = std::make_shared<TxtBufMapType>();
 	 _eventMgr = std::make_shared<EventManagerType>(consoleLogger);
 	 _set_write_ws = std::bind(&EventManagerType::SetWrite, _eventMgr, std::placeholders::_1);
 	 _wsManager = std::make_shared<WebSocketManagerType>(wsLogger, _set_write_ws);
 	 _wsAnonManager = std::make_shared<AnonWebSocketManagerType>(wsLogger, _set_write_ws);
-	 _http2Manager = std::make_shared<HTTP2ManagerType>(wsLogger, _set_write_ws);
+	 _grpcManager = std::make_shared<HTTP2GRPCManagerType>(httpLogger, _set_write_ws, grpcPath);
 	 _adminManager = std::make_shared<AdminManagerType>(wsLogger, _set_write_ws);
 	 _protoManager = std::make_shared<ProtoManagerType>(wsLogger, _set_write_ws);
 	 _openSSLMgr = std::make_shared<SSLType>(wsLogger, _set_write_ws, "/etc/ssl/certs/");
@@ -178,8 +178,6 @@ typedef struct CoypuContextS {
 	 for (int i = 0; i < SOURCE_MAX; ++i) {
 		_bookSourceMap.push_back(std::make_shared<BookMapType>());
 	 }
-
-
 
   }
   CoypuContextS(const CoypuContextS &other) = delete;
@@ -193,7 +191,7 @@ typedef struct CoypuContextS {
   std::function<int(int)> _set_write_ws;
   std::shared_ptr <WebSocketManagerType> _wsManager;
   std::shared_ptr <AnonWebSocketManagerType> _wsAnonManager;
-  std::shared_ptr <HTTP2ManagerType> _http2Manager;
+  std::shared_ptr <HTTP2GRPCManagerType> _grpcManager;
   std::shared_ptr <AdminManagerType> _adminManager;
   std::shared_ptr <ProtoManagerType> _protoManager;
   std::shared_ptr <SSLType> _openSSLMgr;
@@ -663,13 +661,13 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
 	 uint64_t init_offset = UINT64_MAX;
 	 context->_publishStreamSP->Register(clientfd, init_offset);
 	 
-	 std::function<int(int)> readCB = std::bind(&HTTP2ManagerType::Read, context->_http2Manager, std::placeholders::_1);
-	 std::function<int(int)> writeCB = std::bind(&HTTP2ManagerType::Write, context->_http2Manager, std::placeholders::_1);
+	 std::function<int(int)> readCB = std::bind(&HTTP2GRPCManagerType::Read, context->_grpcManager, std::placeholders::_1);
+	 std::function<int(int)> writeCB = std::bind(&HTTP2GRPCManagerType::Write, context->_grpcManager, std::placeholders::_1);
 	 std::function<int(int)> closeCB = [wContextSP] (int fd) {
 		auto context = wContextSP.lock();
 		if (context) {
 		  context->_publishStreamSP->Unregister(fd);
-		  context->_http2Manager->Unregister(fd);
+		  context->_grpcManager->Unregister(fd);
 
 		  auto b = context->_txtBufs->find(fd);
 		  if (b != context->_txtBufs->end()) {
@@ -697,7 +695,7 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
 	 
 	 std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
 	 std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
-	 bool b = context->_http2Manager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);
+	 bool b = context->_grpcManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);
 	 assert(b);
 	 int r = context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 	 assert(r == 0);
@@ -1447,7 +1445,8 @@ int main(int argc, char **argv)
 	
   auto consoleLogger = std::make_shared<coypu::SPDLogger>(console);
 
-  auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger);
+  std::string grpcPath = "/coypu.msg.CoypuService/RequestData";
+  auto contextSP = std::make_shared<CoypuContext>(consoleLogger, wsLogger, wsLogger, grpcPath);
   contextSP->_eventMgr->Init(); // needs to happens before cb manager so we can register the queue.
 
   contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
@@ -1601,58 +1600,83 @@ int main(int argc, char **argv)
   config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
   SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
 
-  // test proto
-  std::function<void(int, coypu::msg::CoypuRequest &)> coypuRequestCB =
-	 [wContext] (int fd, coypu::msg::CoypuRequest &request) -> void {
+  std::function <coypu::msg::CoypuMessage (coypu::msg::CoypuRequest &,
+														 std::shared_ptr<CoypuContext> &)> processRequest =  [] (coypu::msg::CoypuRequest &request,
+																																	std::shared_ptr<CoypuContext> &contextSP) {
+	 coypu::msg::CoypuMessage cMsg;
 	 auto consoleLogger = spdlog::get("console");
 	 assert(consoleLogger);
-
 	 const google::protobuf::EnumDescriptor *descriptor = coypu::msg::CoypuRequest_Type_descriptor();
+	 if (request.type() == coypu::msg::CoypuRequest::BOOK_SNAPSHOT_REQUEST) {
+		coypu::msg::BookSnapshot *s = request.mutable_snap();
+		if  (s->source() > SOURCE_UNKNOWN && s->source() < SOURCE_MAX) {
+		  consoleLogger->info("{0} {2} {1}", descriptor->FindValueByNumber(request.type())->name(),
+									 s->source(), s->key());
+		  std::shared_ptr<BookMapType> &bookMap = contextSP->_bookSourceMap[s->source()];
+		  auto b = bookMap->find(s->key());
+		  if (b != bookMap->end()) {
+			 std::shared_ptr<BookType> &book = (*b).second;
+			 assert(book);
+			 
+			 cMsg.set_type(coypu::msg::CoypuMessage::BOOK_SNAP);
+			 coypu::msg::CoypuBook *snap = cMsg.mutable_snap();
+			 snap->set_key(s->key());
+			 snap->set_source(s->source());
+			 book->Snap(snap, s->levels());
 
-	 auto contextSP = wContext.lock();
-	 if (contextSP) {
-		coypu::msg::CoypuMessage cMsg;
-
-		if (request.type() == coypu::msg::CoypuRequest::BOOK_SNAPSHOT_REQUEST) {
-		  coypu::msg::BookSnapshot *s = request.mutable_snap();
-		  if  (s->source() > SOURCE_UNKNOWN && s->source() < SOURCE_MAX) {
-			 consoleLogger->info("{0} {2} {1}", descriptor->FindValueByNumber(request.type())->name(),
-										s->source(), s->key());
-			 std::shared_ptr<BookMapType> &bookMap = contextSP->_bookSourceMap[s->source()];
-			 auto b = bookMap->find(s->key());
-			 if (b != bookMap->end()) {
-				std::shared_ptr<BookType> &book = (*b).second;
-				assert(book);
-
-				cMsg.set_type(coypu::msg::CoypuMessage::BOOK_SNAP);
-				coypu::msg::CoypuBook *snap = cMsg.mutable_snap();
-				snap->set_key(s->key());
-				snap->set_source(s->source());
-				book->Snap(snap, s->levels());
-
-			 } else {
-				cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
-				coypu::msg::CoypuError *error = cMsg.mutable_error();
-				std::stringstream ss;
-				ss << "Book not found " << s->key() << " " << s->source();
-				error->set_error_msg(ss.str());
-			 }
 		  } else {
 			 cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
 			 coypu::msg::CoypuError *error = cMsg.mutable_error();
 			 std::stringstream ss;
-			 ss << "Unsupported source " << s->source();
+			 ss << "Book not found " << s->key() << " " << s->source();
 			 error->set_error_msg(ss.str());
 		  }
 		} else {
-		  consoleLogger->error("Unsupported request {0}", descriptor->FindValueByNumber(request.type())->name());
-			 
 		  cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
 		  coypu::msg::CoypuError *error = cMsg.mutable_error();
 		  std::stringstream ss;
-		  ss << "Unsupported request";
+		  ss << "Unsupported source " << s->source();
 		  error->set_error_msg(ss.str());
 		}
+	 } else {
+		consoleLogger->error("Unsupported request {0}", descriptor->FindValueByNumber(request.type())->name());
+		
+		cMsg.set_type(coypu::msg::CoypuMessage::ERROR);
+		coypu::msg::CoypuError *error = cMsg.mutable_error();
+		std::stringstream ss;
+		ss << "Unsupported request";
+		error->set_error_msg(ss.str());
+	 }
+
+	 return cMsg;
+  };
+  
+  // BEGIN grpc
+  std::function <coypu::msg::CoypuMessage (coypu::msg::CoypuRequest &)> cb = [wContext, processRequest] (coypu::msg::CoypuRequest &request) {
+	 coypu::msg::CoypuMessage cMsg;
+	 auto contextSP = wContext.lock();
+	 if (contextSP) {
+		auto consoleLogger = spdlog::get("console");
+		assert(consoleLogger);
+		consoleLogger->info(request.DebugString());
+		cMsg = processRequest(request, contextSP);
+		return cMsg;
+	 }
+	 assert(false);
+	 return cMsg;
+  };
+  contextSP->_grpcManager->SetRequestCB(cb);
+  // END grpc
+  
+  // test proto 
+  std::function<void(int, coypu::msg::CoypuRequest &)> coypuRequestCB =
+	 [wContext, processRequest] (int fd, coypu::msg::CoypuRequest &request) -> void {
+	 auto consoleLogger = spdlog::get("console");
+	 assert(consoleLogger);
+
+	 auto contextSP = wContext.lock();
+	 if (contextSP) {
+		coypu::msg::CoypuMessage cMsg = processRequest(request, contextSP);
 
 		if (cMsg.type() == coypu::msg::CoypuMessage::ERROR) {
 		  consoleLogger->error("Response {0}", cMsg.DebugString());
