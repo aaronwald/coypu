@@ -1372,19 +1372,28 @@ int main(int argc, char **argv)
 	 for (const std::string &logger : loggerNames) {
 		auto cfgLog = loggers->GetConfig(logger);
 		assert(cfgLog);
-		 
+
 		std::string level, file;
 		cfgLog->GetKeyValue("level", level);
-		cfgLog->GetKeyValue("file", file);
+		if (logger == "console") {
+		  if (level.empty()) {
+			 error_logger->error("Missing level for console logger.");
+			 exit(1);
+		  }
+		  auto consoleLogger = spdlog::get("console");
+		  consoleLogger->set_level(spdlog::level::from_str(level));
+		} else {
+		  cfgLog->GetKeyValue("file", file);
 		 
-		if (level.empty() || file.empty()) {
-		  error_logger->error("Logger config missing level or file.");
-		  exit(1);
+		  if (level.empty() || file.empty()) {
+			 error_logger->error("Logger config missing level or file.");
+			 exit(1);
+		  }
+		  
+		  auto log = spdlog::basic_logger_st(logger, file);
+		  log->flush_on(spdlog::level::warn); 
+		  log->set_level(spdlog::level::from_str(level));
 		}
-		 
-		auto log = spdlog::basic_logger_st(logger, file);
-		log->flush_on(spdlog::level::warn); 
-		log->set_level(spdlog::level::from_str(level));
 		// spdlog::register_logger(log); not needed
 	 }
   } else {

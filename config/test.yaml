@@ -6,6 +6,8 @@ loggers:
   debug:
     level: debug
     file: debug.log
+  console:
+    level: debug
 
 interface: enp0s3
 coypu-publish-path: stream/publish/data
@@ -13,7 +15,7 @@ coypu-publish-path: stream/publish/data
 
 coypu:
   websocket:
-    logger: ws-logger
+    logger: console
     cpu: 8
 
 do-kraken: false

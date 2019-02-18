@@ -3,12 +3,14 @@ loggers:
   ws-logger:
     level: debug
     file: websocket.log
+  console:
+    level: debug
 
 interface: eth0
 
 coypu:
   websocket:
-    logger: ws-logger
+    logger: console
     cpu: 1
 
 do-kraken: false

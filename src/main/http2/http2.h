@@ -191,7 +191,8 @@ namespace coypu
 		  HTTP2GRPCManager (LogTrait logger, 
 								  write_cb_type set_write,
 								  const std::string &path ) : _logger(logger),
-			 _capacity(INITIAL_SETTINGS_MAX_FRAME_SIZE*2), _set_write(set_write), _inflater(nullptr), _path(path) {
+			 _capacity(INITIAL_SETTINGS_MAX_FRAME_SIZE*2),
+			 _set_write(set_write), _inflater(nullptr), _path(path) {
 			 static_assert(sizeof(H2Header) == 9, "H2 Header Size");
 
 			 int rv = nghttp2_hd_inflate_new(&_inflater);
@@ -245,7 +246,7 @@ namespace coypu
 				int ret = con->_writeBuf->Writev(fd, con->_writev); 
 
 				if (con->_server) {
-				  _logger->info("Write fd[{0}] bytes[{1}]", fd, ret);
+				  _logger->debug("Write fd[{0}] bytes[{1}]", fd, ret);
 				}
 
 				if (ret < 0) return ret; // error
@@ -284,7 +285,7 @@ namespace coypu
 			 }
 
 			 if (con->_server) {
-				_logger->info("Read fd[{0}] bytes[{1}] State[{2}]", fd, r, con->_state);
+				_logger->debug("Read fd[{0}] bytes[{1}] State[{2}]", fd, r, con->_state);
 			 }
 
 
@@ -332,6 +333,8 @@ namespace coypu
 			 std::function<int(int,const struct iovec *,int)> _readv;
 			 std::function<int(int,const struct iovec *,int)> _writev;
 			 std::function <void(int)> _onOpen;
+			 uint32_t _windowSize;
+			 bool _lastPathMatch;
 
 			 HTTP2Connection (int fd, uint64_t capacity, bool masked, bool server,
 									std::function<int(int,const struct iovec *,int)> &readv,
@@ -341,7 +344,7 @@ namespace coypu
 									std::shared_ptr<PublishTrait> &publish) :
 			 _fd(fd), _stream(stream), _publish(publish), _hdr({}), _frameCount(0), _readData(nullptr), _writeData(nullptr), 
 				_state(H2_CS_UNKNOWN), _server(server), _readv(readv), _writev(writev),
-				_onOpen(onOpen) {
+				_onOpen(onOpen), _windowSize(INITIAL_SETTINGS_MAX_FRAME_SIZE), _lastPathMatch(false) {
 				assert(capacity >= INITIAL_SETTINGS_MAX_FRAME_SIZE);
 				_readData = new char[capacity];
 				_writeData = new char[capacity];
@@ -369,7 +372,8 @@ namespace coypu
 		  RequestTrait _request;
 		  request_cb_type _cb;
 
-		  int inflate_header_block(nghttp2_hd_inflater *inflater, uint8_t *in,
+		  int inflate_header_block(std::shared_ptr<con_type> &con,
+											nghttp2_hd_inflater *inflater, uint8_t *in,
 											size_t inlen, int final) {
 			 ssize_t rv;
 			 
@@ -378,7 +382,7 @@ namespace coypu
 				int inflate_flags = 0;
 				size_t proclen;
 				
-				rv = nghttp2_hd_inflate_hd(inflater, &nv, &inflate_flags, in, inlen, final);
+				rv = nghttp2_hd_inflate_hd2(inflater, &nv, &inflate_flags, in, inlen, final);
 
 				if (rv < 0) {
 				  _logger->error("inflate failed with error code {0}", rv);
@@ -392,6 +396,17 @@ namespace coypu
 				
 				if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
 				  _logger->debug("{0} = {1}", nv.name, nv.value);
+
+				  if (::strncmp(reinterpret_cast<char*>(nv.name), ":path", std::min(nv.namelen, 5ul)) == 0) {
+					 if (::strncmp(reinterpret_cast<char*>(nv.value), _path.c_str(), std::min(nv.valuelen, _path.length())) == 0) {
+						_logger->info("Path {0}", nv.value);
+						con->_lastPathMatch = true;
+					 } else {
+						_logger->error("Path mismatch {0}", nv.value);
+						con->_lastPathMatch = false;
+					 }
+
+				  }
 				}
 				
 				if (inflate_flags & NGHTTP2_HD_INFLATE_FINAL) {
@@ -448,52 +463,61 @@ namespace coypu
 					 // :path = /coypu.msg.CoypuService/RequestData
 					 // content-type = application/grpc
 
-					 inflate_header_block(_inflater, reinterpret_cast<uint8_t *>(data), len, 1);
+					 inflate_header_block(con, _inflater, reinterpret_cast<uint8_t *>(data), len, 1);
 				  } else if (con->_hdr.type == H2_FT_DATA) {
 					 // data
-					 char data[1024] = {};
+					 char data[16] = {};
 					 con->_stream->Pop(data, 5);
 					 assert(data[0] == 0); // compressed byte
 
+					 // TODO If this is a continuation we have to buffer the data until all is received.
+					 // Would require a continuationBuffer to do copy.
+					 
 					 // grpc len
 					 uint32_t grpcLen = ntohl(*(reinterpret_cast<uint32_t *>(&data[1])));
-
-					 // proto buf
-					 proto_in_type gIn(con->_stream, con->_stream->CurrentOffset());
-					 google::protobuf::io::CodedInputStream gInStream(&gIn);
-
-					 google::protobuf::io::CodedInputStream::Limit limit =
-						gInStream.PushLimit(grpcLen);
-
-					 bool b = _request.MergeFromCodedStream(&gInStream);
-					 assert(b);
+					 if (con->_lastPathMatch) {
+						// proto buf
+						proto_in_type gIn(con->_stream, con->_stream->CurrentOffset());
+						google::protobuf::io::CodedInputStream gInStream(&gIn);
+						
+						google::protobuf::io::CodedInputStream::Limit limit =
+						  gInStream.PushLimit(grpcLen);
+						
+						bool b = _request.MergeFromCodedStream(&gInStream);
+						assert(b);
+						
+						assert(gInStream.ConsumedEntireMessage());
+						gInStream.PopLimit(limit);
+						
+						assert(_cb);
+						ResponseTrait response = _cb(_request); // hope for move
+						
+						// send begin header
+						nghttp2_nv nva2[] = {MAKE_NV(":status", "200"),
+													MAKE_NV("content-type", "application/grpc+proto")};
+						SendHeaderFrame(con, nva2, sizeof(nva2) / sizeof(nva2[0]), H2_F_END_HEADERS);
+						
+						// Data Frame w/ END_STREAM flag
+						std::string s;
+						b = response.SerializeToString(&s);
+						assert(b);
+						assert(s.length()+5 < INITIAL_SETTINGS_MAX_FRAME_SIZE);
+						H2Header dataFrame(H2_FT_DATA);
+						dataFrame.id = con->_hdr.id; // what should this be?
+						dataFrame.SetLength(5 + s.length());
+						SendGRPCFrame(con, dataFrame, s.c_str(), s.length());
 					 
-					 assert(gInStream.ConsumedEntireMessage());
-					 gInStream.PopLimit(limit);
-
-					 assert(_cb);
-					 ResponseTrait response = _cb(_request); // hope for move
-
-					 // send begin header
-					 nghttp2_nv nva2[] = {MAKE_NV(":status", "200"),
-												 MAKE_NV("content-type", "application/grpc+proto")};
-					 SendHeaderFrame(con, nva2, sizeof(nva2) / sizeof(nva2[0]), H2_F_END_HEADERS);
-
-					 // Data Frame w/ END_STREAM flag
-					 std::string s;
-					 b = response.SerializeToString(&s);
-					 assert(b);
-					 assert(s.length()+5 < INITIAL_SETTINGS_MAX_FRAME_SIZE);
-					 H2Header dataFrame(H2_FT_DATA);
-					 dataFrame.id = con->_hdr.id; // what should this be?
-					 dataFrame.SetLength(5 + s.length());
-					 SendGRPCFrame(con, dataFrame, s.c_str(), s.length());
-					 
-
-					 // send end header
-					 nghttp2_nv nva_end[] = {MAKE_NV("grpc-status", "0"),
-													 MAKE_NV("grpc-message", "")};
-					 SendHeaderFrame(con, nva_end, sizeof(nva_end) / sizeof(nva_end[0]), H2_F_END_HEADERS | H2_F_END_STREAM);
+						// send end header
+						nghttp2_nv nva_end[] = {MAKE_NV("grpc-status", "0")};
+						SendHeaderFrame(con, nva_end, sizeof(nva_end) / sizeof(nva_end[0]), H2_F_END_HEADERS | H2_F_END_STREAM);
+					 } else {
+						_logger->error("Path mismatch. Skipping proto.");
+						bool b = con->_stream->Skip(grpcLen);
+						assert(b);
+						nghttp2_nv nva2[] = {MAKE_NV(":status", "404")};
+						SendHeaderFrame(con, nva2, sizeof(nva2) / sizeof(nva2[0]), H2_F_END_HEADERS | H2_F_END_STREAM);
+						// TODO: Determine right error sequence
+					 }
 				  } else if (con->_hdr.type == H2_FT_GOAWAY) {
 					 uint32_t streamId = 0;
 					 uint32_t errorCode = 0;
@@ -518,6 +542,9 @@ namespace coypu
 					 assert(b);
 					 windowUpdate &= ~(1UL << 31);
 					 windowUpdate = ntohl(windowUpdate);
+					 con->_windowSize = windowUpdate;
+					 // TODO Should change the capacity
+					 _logger->debug("WindowUpdate fd[{0}] size[{1}]", con->_fd, con->_windowSize);
 				  } else if (con->_hdr.type == H2_FT_SETTINGS) {
 					 if (con->_frameCount == 1) {
 						// send empty settings always
@@ -525,11 +552,7 @@ namespace coypu
 						SendFrame(con, empty, nullptr, 0);
 					 }
 					 
-					 if (len == 0) {
-						// ack
-						//assert(con->_hdr.flags & 0x1);
-
-					 } else {
+					 if (len >= 0) {
 						assert(len % 6 == 0); // 4,2
 
 						for (int i = 0; i < len; i += 6) {
@@ -541,6 +564,7 @@ namespace coypu
 						  assert(b);
 						  identifier = ntohs(identifier);
 						  value = ntohl(value);
+						  _logger->debug("Setting fd[{0}] id[{1}] value [{2}]", con->_fd, identifier, value);
 						}
 
 						H2Header empty(H2_FT_SETTINGS);
