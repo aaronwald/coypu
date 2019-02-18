@@ -36,6 +36,7 @@
 #include <unordered_map>
 #include <memory>
 #include "buf/buf.h"
+#include "util/string-util.h"
 
 namespace coypu
 {
@@ -76,14 +77,15 @@ namespace coypu
 		static constexpr int WS_SEC_KEY_LEN      = 16;
 		static constexpr int WS_SEC_KEY_SIZE = 1+(((WS_SEC_KEY_LEN/3)+1)*4);
 
-		static constexpr const char * HEADER_SEC_WEBSOCKET_PROTOCOL= "Sec-WebSocket-Protocol";
-		static constexpr const char * HEADER_SEC_WEBSOCKET_KEY     = "Sec-WebSocket-Key";
-		static constexpr const char * HEADER_SEC_WEBSOCKET_ACCEPT  = "Sec-WebSocket-Accept";
-		static constexpr const char * HEADER_SEC_WEBSOCKET_VERSION = "Sec-WebSocket-Version";
-		static constexpr const char * HEADER_UPGRADE               = "Upgrade";
-		static constexpr const char * HEADER_CONNECTION            = "Connection";
-		static constexpr const char * HEADER_HOST                  = "Host";
-		static constexpr const char * HEADER_ORIGIN                = "Origin";
+		static constexpr const char * HEADER_SEC_WEBSOCKET_PROTOCOL= "sec-websocket-protocol";
+		static constexpr const char * HEADER_SEC_WEBSOCKET_KEY     = "sec-websocket-key";
+		static constexpr const char * HEADER_SEC_WEBSOCKET_ACCEPT  = "sec-websocket-accept";
+		static constexpr const char * HEADER_SEC_WEBSOCKET_VERSION = "sec-websocket-version";
+		static constexpr const char * HEADER_UPGRADE               = "upgrade";
+		static constexpr const char * HEADER_CONNECTION            = "connection";
+		static constexpr const char * HEADER_HOST                  = "host";
+		static constexpr const char * HEADER_ORIGIN                = "origin";
+		static constexpr const char * HEADER_SERVERS               = "server";
 
 		static constexpr const char * HEADER_HTTP_NEWLINE          = "\r\n";
 		static constexpr const size_t HEADER_HTTP_NEWLINE_LEN      = 2;
@@ -441,7 +443,7 @@ namespace coypu
 			 for (; header[i] != ':' && i < hdr_len; ++i) { }
 			 if (i > 0 && i < hdr_len) {
 				std::string key = std::string(header, i);
-
+				coypu::util::StringUtil::ToLower(key);
 				int skip = header[i+1] == ' ' ? 2 : 1;
 				std::string value = std::string(&header[i+skip], hdr_len-i-1-skip);
 				_logger->debug("Header {0} {1}", key, value);
@@ -638,9 +640,9 @@ namespace coypu
 				  } else {
 					 int checkHeaderCount = 0;
 
-					 if (con->HasHeader("Server")) ++checkHeaderCount;
-					 if (con->HasHeader("Upgrade")) ++checkHeaderCount;
-					 if (con->HasHeader("Connection")) ++checkHeaderCount;
+					 if (con->HasHeader(HEADER_SERVERS)) ++checkHeaderCount;
+					 if (con->HasHeader(HEADER_UPGRADE)) ++checkHeaderCount;
+					 if (con->HasHeader(HEADER_CONNECTION)) ++checkHeaderCount;
 					 if (con->HasHeader(HEADER_SEC_WEBSOCKET_ACCEPT)) ++checkHeaderCount;
 					 _logger->debug("Client check count {}", checkHeaderCount);
 					 if (checkHeaderCount == 4) {
