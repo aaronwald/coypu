@@ -5,8 +5,14 @@ import json
 import coincache_pb2 as cc
 import time
 
+import logging
+logger = logging.getLogger('websockets')
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
 if __name__ == "__main__":
-    ws = create_connection("ws://localhost:8080/websocket")
+#    ws = create_connection("ws://localhost:8080/websocket")
+    ws = create_connection("ws://34.73.91.151:80/websocket")
     ws.send(json.dumps({"cmd": "mark", "offset": 0}))
 
     count = 0

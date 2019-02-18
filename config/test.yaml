@@ -17,6 +17,9 @@ coypu:
     cpu: 8
 
 do-kraken: false
+sandbox-kraken-host: "ws-sandbox.kraken.com"
+kraken-host: "ws.kraken.com"
+
 kkraken-symbols:
   - ETH/USD
   
@@ -105,8 +108,6 @@ kraken-symbols:
   - XTZ/XBT
   
 do-gdax: true
-sandbox-kraken-host: "ws-sandbox.kraken.com"
-kraken-host: "ws.kraken.com"
 gdax-symbols:
   - MANA-USDC
   - ETH-USD

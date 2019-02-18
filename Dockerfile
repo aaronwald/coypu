@@ -1,11 +1,8 @@
 FROM coypu_llvm
 WORKDIR /opt/coypu
-COPY build/coypu .
+COPY sh/entrypoint.sh .
 COPY config/docker.yaml .
 COPY src/rust-lib/target/debug/libcoypurust.so .
-COPY sh/entrypoint.sh .
+COPY build/coypu .
 ENTRYPOINT ["/opt/coypu/entrypoint.sh"]
 CMD ["/opt/coypu/coypu", "/opt/coypu/docker.yaml"]
-
-
-

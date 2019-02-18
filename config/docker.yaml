@@ -11,6 +11,7 @@ coypu:
     logger: ws-logger
     cpu: 1
 
+do-kraken: false
 do-gdax: true
 
 gdax-symbols:

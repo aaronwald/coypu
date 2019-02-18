@@ -160,7 +160,7 @@ const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
 const std::string COYPU_CACHE_PATH = "stream/cache/data";
 const std::string COYPU_DEFAULT_ADMIN_PORT = "9999";
 const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
-const std::string COYPU_DEFAULT_HTTP2_PORT = "8089";
+const std::string COYPU_DEFAULT_GRPC_PORT = "8089";
 
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger, LogType&httpLogger, const std::string &grpcPath) {
@@ -676,26 +676,10 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
 		}
 		return 0;
 	 };
-
-	 std::function <void(uint64_t, uint64_t)> onText = [clientfd, txtBuf, logger] (uint64_t offset, off64_t len) {
-		char jsonDoc[1024*1024] = {};
-		if (len < sizeof(jsonDoc)) {
-		  // sad copying but nice json library
-		  if(txtBuf->Pop(jsonDoc, offset, len)) {
-			 jsonDoc[len] = 0;
-			 logger->debug("{0} doc {1}", clientfd, jsonDoc);
-
-		  } else {
-			 logger->error("Pop failed");
-		  }
-		}
-		
-		return;
-	 };
-	 
+ 
 	 std::function <int(int,const struct iovec*, int)> readvCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::readv(fd, iovec, c); };
 	 std::function <int(int,const struct iovec*, int)> writevCB = [] (int fd, const struct iovec *iovec, int c) -> int { return ::writev(fd, iovec, c); };
-	 bool b = context->_grpcManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, onText, txtBuf, context->_publishStreamSP);
+	 bool b = context->_grpcManager->RegisterConnection(clientfd, true, readvCB, writevCB, nullptr, txtBuf, context->_publishStreamSP);
 	 assert(b);
 	 int r = context->_eventMgr->Register(clientfd, readCB, writeCB, closeCB);
 	 assert(r == 0);
@@ -898,7 +882,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
 				CoinCache cc(context->_coinCache->NextSeq());
 
-				if (!(context->_coinCache->CheckSeq() % 10000)) {
+				if (!(context->_coinCache->CheckSeq() % 100)) {
 				  std::stringstream ss;
 				  ss << *(context->_coinCache);
 				  context->_consoleLogger->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
@@ -1510,7 +1494,7 @@ int main(int argc, char **argv)
 
   // BEGIN Create HTTP2 service
   std::string http2Port;
-  config->GetValue("http2-port", http2Port, COYPU_DEFAULT_HTTP2_PORT);
+  config->GetValue("grpc-port", http2Port, COYPU_DEFAULT_GRPC_PORT);
   sockFD = BindAndListen(consoleLogger, interface, atoi(http2Port.c_str()));
   if (sockFD > 0) {
 

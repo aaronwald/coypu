@@ -105,7 +105,7 @@ namespace coypu
 		// server even streams
 
 		struct H2Header {
-		  char len[3];
+		  uint8_t len[3];
 		  char type;
 		  char flags;
 		  int32_t id;
@@ -212,10 +212,9 @@ namespace coypu
 										  std::function<int(int,const struct iovec *,int)> readv,
 										  std::function<int(int,const struct iovec *,int)> writev,
 										  std::function <void(int)> onOpen,
-										  std::function <void(uint64_t, uint64_t)> onText,
 										  std::shared_ptr<StreamTrait> &stream,
 										  std::shared_ptr<PublishTrait> &publish) {
-			 auto sp = std::make_shared<con_type>(fd, _capacity, !serverCon, serverCon, readv, writev, onOpen, onText, stream, publish);
+			 auto sp = std::make_shared<con_type>(fd, _capacity, !serverCon, serverCon, readv, writev, onOpen, stream, publish);
 			 auto p = std::make_pair(fd, sp);
 			 sp->_state = H2_CS_CONNECTING;
 
@@ -333,18 +332,16 @@ namespace coypu
 			 std::function<int(int,const struct iovec *,int)> _readv;
 			 std::function<int(int,const struct iovec *,int)> _writev;
 			 std::function <void(int)> _onOpen;
-			 std::function <void(uint64_t, uint64_t)> _onText;
 
 			 HTTP2Connection (int fd, uint64_t capacity, bool masked, bool server,
 									std::function<int(int,const struct iovec *,int)> &readv,
 									std::function<int(int,const struct iovec *,int)> &writev,
 									std::function <void(int)> onOpen,
-									std::function <void(uint64_t, uint64_t)> onText,
 									std::shared_ptr<StreamTrait> &stream,
 									std::shared_ptr<PublishTrait> &publish) :
 			 _fd(fd), _stream(stream), _publish(publish), _hdr({}), _frameCount(0), _readData(nullptr), _writeData(nullptr), 
 				_state(H2_CS_UNKNOWN), _server(server), _readv(readv), _writev(writev),
-				_onOpen(onOpen), _onText(onText) {
+				_onOpen(onOpen) {
 				assert(capacity >= INITIAL_SETTINGS_MAX_FRAME_SIZE);
 				_readData = new char[capacity];
 				_writeData = new char[capacity];
@@ -382,7 +379,7 @@ namespace coypu
 				size_t proclen;
 				
 				rv = nghttp2_hd_inflate_hd(inflater, &nv, &inflate_flags, in, inlen, final);
-				
+
 				if (rv < 0) {
 				  _logger->error("inflate failed with error code {0}", rv);
 				  return -1;
@@ -432,16 +429,16 @@ namespace coypu
 			 }
 
 			 if (con->_state == H2_CS_READ_FRAME) {
-				uint32_t len = (con->_hdr.len[0] << 16) | (con->_hdr.len[1] << 8) | (con->_hdr.len[2]);
+				uint32_t len = 0x00FFFFFF & ((con->_hdr.len[0] << 16) | (con->_hdr.len[1] << 8) | (con->_hdr.len[2]));
 				
-				if (len && con->_stream->Available() >= len) {
+				if (con->_stream->Available() >= len) {
 				  // TODO Pop frame
 				  // To where? Anon store?
 				  ++con->_frameCount;
 				  //			  ProcessFrame(con);
 
 				  
-				  if (con->_hdr.type == 1) {
+				  if (con->_hdr.type == H2_FT_HEADERS) {
 					 // header - use nghttp2 libs
 					 char data[HTTP2_HEADER_BUF_SIZE];
 					 assert(len < HTTP2_HEADER_BUF_SIZE);
@@ -452,7 +449,7 @@ namespace coypu
 					 // content-type = application/grpc
 
 					 inflate_header_block(_inflater, reinterpret_cast<uint8_t *>(data), len, 1);
-				  } else if (con->_hdr.type == 0) {
+				  } else if (con->_hdr.type == H2_FT_DATA) {
 					 // data
 					 char data[1024] = {};
 					 con->_stream->Pop(data, 5);
@@ -486,28 +483,72 @@ namespace coypu
 					 std::string s;
 					 b = response.SerializeToString(&s);
 					 assert(b);
-					 
+					 assert(s.length()+5 < INITIAL_SETTINGS_MAX_FRAME_SIZE);
 					 H2Header dataFrame(H2_FT_DATA);
 					 dataFrame.id = con->_hdr.id; // what should this be?
 					 dataFrame.SetLength(5 + s.length());
-					 SendGRPCFrame(con, dataFrame, response.ByteSize(), s.c_str(), s.length());
+					 SendGRPCFrame(con, dataFrame, s.c_str(), s.length());
+					 
 
 					 // send end header
-					 nghttp2_nv nva_end[] = {MAKE_NV("grpc-status", "0")};
+					 nghttp2_nv nva_end[] = {MAKE_NV("grpc-status", "0"),
+													 MAKE_NV("grpc-message", "")};
 					 SendHeaderFrame(con, nva_end, sizeof(nva_end) / sizeof(nva_end[0]), H2_F_END_HEADERS | H2_F_END_STREAM);
+				  } else if (con->_hdr.type == H2_FT_GOAWAY) {
+					 uint32_t streamId = 0;
+					 uint32_t errorCode = 0;
+					 bool b = con->_stream->Pop(reinterpret_cast<char *>(&streamId), sizeof(uint32_t));
+					 assert(b);
+					 streamId &= ~(1UL << 31);
+					 streamId = ntohl(streamId);
+
+					 b = con->_stream->Pop(reinterpret_cast<char *>(&errorCode), sizeof(uint32_t));
+					 assert(b);
+					 errorCode = ntohl(errorCode);
+
+					 char foo[1024] = {};
+					 con->_stream->Pop(foo, std::min(1024u, len-8));
+					 
+					 _logger->info("Go away fd[{0}] errorCode[{1}] Msg[{2}]", con->_fd, errorCode, foo);
+
+				  } else if (con->_hdr.type == H2_FT_WINDOW_UPDATE) {
+					 assert(len == 4);
+					 uint32_t windowUpdate = 0;
+					 bool b = con->_stream->Pop(reinterpret_cast<char *>(&windowUpdate), sizeof(uint32_t));
+					 assert(b);
+					 windowUpdate &= ~(1UL << 31);
+					 windowUpdate = ntohl(windowUpdate);
+				  } else if (con->_hdr.type == H2_FT_SETTINGS) {
+					 if (con->_frameCount == 1) {
+						// send empty settings always
+						H2Header empty(H2_FT_SETTINGS);
+						SendFrame(con, empty, nullptr, 0);
+					 }
+					 
+					 if (len == 0) {
+						// ack
+						//assert(con->_hdr.flags & 0x1);
+
+					 } else {
+						assert(len % 6 == 0); // 4,2
+
+						for (int i = 0; i < len; i += 6) {
+						  uint16_t identifier = 0;
+						  uint32_t value = 0;
+						  bool b= con->_stream->Pop(reinterpret_cast<char *>(&identifier), 2);
+						  assert(b);
+						  b = con->_stream->Pop(reinterpret_cast<char *>(&value), 4);
+						  assert(b);
+						  identifier = ntohs(identifier);
+						  value = ntohl(value);
+						}
+
+						H2Header empty(H2_FT_SETTINGS);
+						empty.flags |= 0x1;
+						SendFrame(con, empty, nullptr, 0);
+					 }
 				  } else {
 					 con->_stream->Skip(len);
-				  }
-
-				  con->_state = H2_CS_READ_FRAME_HEADER; // back to header
-				} else if (len == 0) {
-				  ++con->_frameCount;
-				  //ProcessFrame(con);
-
-				  // hack
-				  if (con->_frameCount == 1) {
-					 H2Header empty(H2_FT_SETTINGS);
-					 SendFrame(con, empty, nullptr, 0);
 				  }
 
 				  con->_state = H2_CS_READ_FRAME_HEADER; // back to header
@@ -560,15 +601,15 @@ namespace coypu
 			 return true;
 		  }
 
-		  bool SendGRPCFrame (std::shared_ptr<con_type> &con, const H2Header &hdr, uint32_t inSize,
+		  bool SendGRPCFrame (std::shared_ptr<con_type> &con, const H2Header &hdr, 
 									 const char *data, size_t len) {
 			 bool b = con->_writeBuf->Push(reinterpret_cast<const char *>(&hdr), sizeof(H2Header));		 
 			 if (!b) return false;
-			 uint32_t size = htonl(inSize);
+			 uint32_t outSize = htonl(len);
 			 char compressed = 0;
 			 b = con->_writeBuf->Push(&compressed, 1);
 			 if (!b) return false;
-			 b = con->_writeBuf->Push(reinterpret_cast<char *>(&size), sizeof(uint32_t));
+			 b = con->_writeBuf->Push(reinterpret_cast<char *>(&outSize), sizeof(uint32_t));
 			 if (!b) return false;
 					 
 			 if (len) {
