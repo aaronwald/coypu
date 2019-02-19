@@ -882,7 +882,7 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 
 				CoinCache cc(context->_coinCache->NextSeq());
 
-				if (!(context->_coinCache->CheckSeq() % 100)) {
+				if (!(context->_coinCache->CheckSeq() % 1000)) {
 				  std::stringstream ss;
 				  ss << *(context->_coinCache);
 				  context->_consoleLogger->info("onText {0} {1} SeqNum[{2}] {3} ", len, offset, context->_coinCache->CheckSeq(), ss.str());
@@ -1603,8 +1603,8 @@ int main(int argc, char **argv)
 	 if (request.type() == coypu::msg::CoypuRequest::BOOK_SNAPSHOT_REQUEST) {
 		coypu::msg::BookSnapshot *s = request.mutable_snap();
 		if  (s->source() > SOURCE_UNKNOWN && s->source() < SOURCE_MAX) {
-		  consoleLogger->info("{0} {2} {1}", descriptor->FindValueByNumber(request.type())->name(),
-									 s->source(), s->key());
+		  consoleLogger->info("{0} Key[{2}] Source[{1}] Levels[{3}]", descriptor->FindValueByNumber(request.type())->name(),
+									 s->source(), s->key(), s->levels());
 		  std::shared_ptr<BookMapType> &bookMap = contextSP->_bookSourceMap[s->source()];
 		  auto b = bookMap->find(s->key());
 		  if (b != bookMap->end()) {
@@ -1651,7 +1651,7 @@ int main(int argc, char **argv)
 	 if (contextSP) {
 		auto consoleLogger = spdlog::get("console");
 		assert(consoleLogger);
-		consoleLogger->info(request.DebugString());
+		consoleLogger->debug(request.DebugString());
 		cMsg = processRequest(request, contextSP);
 		return cMsg;
 	 }

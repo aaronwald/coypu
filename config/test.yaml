@@ -18,7 +18,7 @@ coypu:
     logger: console
     cpu: 8
 
-do-kraken: false
+do-kraken: true
 sandbox-kraken-host: "ws-sandbox.kraken.com"
 kraken-host: "ws.kraken.com"
 
