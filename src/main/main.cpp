@@ -76,6 +76,7 @@ enum CoypuSource {
 };
 
 enum CoypuEvents {
+  CE_UNKNOWN,
   CE_BOOK_CLEAR_GDAX,
   CE_BOOK_CLEAR_KRAKEN,
   CE_WS_CONNECT_GDAX,
@@ -1607,6 +1608,20 @@ int main(int argc, char **argv)
 			 } else {
 				context->_consoleLogger->error("Unkonwn [{0}]", cmd[1]);
 			 }
+		  } else {
+			 context->_consoleLogger->error("Admin '{0}' error", cmd[0]);
+		  }
+		}
+		return;
+	 });
+  
+    contextSP->_adminManager->RegisterCommand("queue", [wContext] (const std::vector<std::string> &cmd) -> void {
+		auto context = wContext.lock();
+		if (context) {
+		  if (cmd.size() == 2) {
+			 int i = atoi(cmd[1].c_str());
+			 context->_cbManager->Queue(i);
+			 context->_consoleLogger->warn("Admin Queue Value[{0}]", i);
 		  } else {
 			 context->_consoleLogger->error("Admin '{0}' error", cmd[0]);
 		  }
