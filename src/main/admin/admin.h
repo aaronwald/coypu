@@ -63,6 +63,7 @@ namespace coypu {
                         if (con->_readBuf->Pop(buf, offset+1)) {
                             buf[offset] = 0;
                             std::string s(buf);
+									 coypu::util::StringUtil::Trim(s);
                             std::vector<std::string> tokens;
                             coypu::util::StringUtil::Split(s, ' ', tokens);
                             if (tokens.size() > 0) {

@@ -446,7 +446,7 @@ namespace coypu
 				coypu::util::StringUtil::ToLower(key);
 				int skip = header[i+1] == ' ' ? 2 : 1;
 				std::string value = std::string(&header[i+skip], hdr_len-i-1-skip);
-				_logger->debug("Header {0} {1}", key, value);
+				_logger->debug("Header fd[{2}] {0} {1}", key, value, con->_fd);
 				return con->_headers.insert(std::make_pair(key,value)).second;
 			 }
 			 return false;
@@ -644,7 +644,7 @@ namespace coypu
 					 if (con->HasHeader(HEADER_UPGRADE)) ++checkHeaderCount;
 					 if (con->HasHeader(HEADER_CONNECTION)) ++checkHeaderCount;
 					 if (con->HasHeader(HEADER_SEC_WEBSOCKET_ACCEPT)) ++checkHeaderCount;
-					 _logger->debug("Client check count {}", checkHeaderCount);
+					 _logger->debug("fd[{1}] Client check count {0}", checkHeaderCount, con->_fd);
 					 if (checkHeaderCount == 4) {
 						if (con->_responsecode == "101" && con->_version == "HTTP/1.1") {
 						  std::string wskey;

@@ -6,10 +6,10 @@ COPY --from=coypu_llvm /usr/local/lib/libnghttp2.so.14 /usr/local/lib
 COPY --from=coypu_llvm /usr/lib/x86_64-linux-gnu/libbpf.so.0 /usr/lib/x86_64-linux-gnu
 WORKDIR /opt/coypu
 COPY sh/entrypoint.sh .
-COPY config/docker.yaml .
-RUN apt-get update && apt-get install -y libnuma-dev libssl-dev libunwind-dev libyaml-dev ca-certificates
+RUN apt-get update && apt-get install -y libnuma-dev libssl-dev libunwind-dev libyaml-dev ca-certificates curl
 COPY src/rust-lib/target/debug/libcoypurust.so .
 COPY build/coypu .
+COPY config/docker.yaml .
 
 ENTRYPOINT ["/opt/coypu/entrypoint.sh"]
 CMD ["/opt/coypu/coypu", "/opt/coypu/docker.yaml"]

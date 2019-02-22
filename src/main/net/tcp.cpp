@@ -36,6 +36,8 @@ int TCPHelper::ConnectStream (const char *host, int port) {
         fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (fd == -1) continue;
 
+		  fprintf(stderr, "DEBUG %s\n", inet_ntoa(reinterpret_cast<struct sockaddr_in *>(rp->ai_addr)->sin_addr));
+
         if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1) break;
 
         close(fd);

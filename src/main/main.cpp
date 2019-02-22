@@ -163,8 +163,9 @@ const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
 const std::string COYPU_DEFAULT_GRPC_PORT = "8089";
 
 typedef struct CoypuContextS {
-  CoypuContextS (LogType &consoleLogger, LogType &wsLogger, LogType&httpLogger, const std::string &grpcPath) {
-	 _consoleLogger = consoleLogger;
+  CoypuContextS (LogType &consoleLogger, LogType &wsLogger, LogType&httpLogger,
+					  const std::string &grpcPath) : _consoleLogger(consoleLogger), _krakenFD(-1), _coinbaseFD(-1)
+  {
 	 _txtBufs = std::make_shared<TxtBufMapType>();
 	 _eventMgr = std::make_shared<EventManagerType>(consoleLogger);
 	 _set_write_ws = std::bind(&EventManagerType::SetWrite, _eventMgr, std::placeholders::_1);
@@ -184,6 +185,8 @@ typedef struct CoypuContextS {
   CoypuContextS &operator=(const CoypuContextS &other) = delete;
 
   LogType _consoleLogger;
+  int _krakenFD;
+  int _coinbaseFD;
 
   std::vector<std::shared_ptr <BookMapType>> _bookSourceMap;
   std::shared_ptr <TxtBufMapType> _txtBufs;
@@ -690,21 +693,22 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
 void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
 					  const std::vector<std::string> &symbolList,
 					  const std::vector<std::string> &channelList) {
-  int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  contextSP->_coinbaseFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  contextSP->_consoleLogger->info("Stream GDAX FD[{0}]", contextSP->_coinbaseFD);
   assert(contextSP);
-  assert(wsFD > 0);
+  assert(contextSP->_coinbaseFD > 0);
   std::weak_ptr <CoypuContext> wContextSP = contextSP;
 
-  if (wsFD < 0) {
+  if (contextSP->_coinbaseFD < 0) {
 	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
 	 return;
   }
-  int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
+  int r = TCPHelper::SetRecvSize(contextSP->_coinbaseFD, 64*1024);
   assert(r == 0);
-  r= TCPHelper::SetNoDelay(wsFD);
+  r= TCPHelper::SetNoDelay(contextSP->_coinbaseFD);
   assert(r == 0);
 
-  r = contextSP->_openSSLMgr->Register(wsFD);
+  r = contextSP->_openSSLMgr->Register(contextSP->_coinbaseFD);
   assert(r == 0);
 
   std::function <int(int,const struct iovec*,int)> sslReadCB =
@@ -1003,36 +1007,38 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
 
   contextSP->_gdaxStreamSP->ResetPosition();
-  bool b = contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);
+  bool b = contextSP->_wsManager->RegisterConnection(contextSP->_coinbaseFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_gdaxStreamSP, nullptr);
   assert(b);
-  r = contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+  r = contextSP->_eventMgr->Register(contextSP->_coinbaseFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
   assert(r == 0);
 
   // Sets the end-point
   char uri[1024];
   snprintf(uri, 1024, "http://%s", hostname.c_str());
-  b = contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
+  b = contextSP->_wsManager->Stream(contextSP->_coinbaseFD, "/", hostname, uri);
   assert(b);
   contextSP->_consoleLogger->info("Request stream URI[{0}]", uri);
 }
 
 void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &hostname, uint32_t port,
 						 const std::vector<std::string> &symbolList) {
-  int wsFD = TCPHelper::ConnectStream(hostname.c_str(), port);
-  assert(wsFD > 0);
+  // TODO check _krakenFD
+  contextSP->_krakenFD = TCPHelper::ConnectStream(hostname.c_str(), port);
+  contextSP->_consoleLogger->info("Stream Kraken FD[{0}]", contextSP->_krakenFD);
+  assert(contextSP->_krakenFD > 0);
   std::weak_ptr <CoypuContext> wContextSP = contextSP;
   assert(contextSP);
   
-  if (wsFD < 0) {
+  if (contextSP->_krakenFD < 0) {
 	 contextSP->_consoleLogger->error("failed to connect to {0}", hostname);
 	 exit(1);
   }
-  int r = TCPHelper::SetRecvSize(wsFD, 64*1024);
+  int r = TCPHelper::SetRecvSize(contextSP->_krakenFD, 64*1024);
   assert(r == 0);
-  r= TCPHelper::SetNoDelay(wsFD);
+  r= TCPHelper::SetNoDelay(contextSP->_krakenFD);
   assert(r == 0);
 
-  contextSP->_openSSLMgr->Register(wsFD);
+  contextSP->_openSSLMgr->Register(contextSP->_krakenFD);
 
   std::function <int(int,const struct iovec*,int)> sslReadCB =
 	 std::bind(&SSLType::ReadvNonBlock, contextSP->_openSSLMgr, std::placeholders::_1,  std::placeholders::_2,  std::placeholders::_3);
@@ -1056,19 +1062,18 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
 
 		subStr= "{\"event\": \"subscribe\", \"pair\": [" + pairList + "], \"subscription\": { \"name\" : \"*\", \"depth\": 100}}";
 		queue = context->_wsManager->Queue(fd, coypu::http::websocket::WS_OP_TEXT_FRAME, subStr.c_str(), subStr.length());
-		
 	 }
   };
 
   std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
+		context->_consoleLogger->info("StreamKraken closeSSL fd[{0}]", fd);
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
 		context->_cbManager->Queue(CE_BOOK_CLEAR_KRAKEN);
 		context->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
 	 }
-
 
 	 return 0;
   };
@@ -1307,13 +1312,13 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
   std::function<int(int)> wsWriteCB = std::bind(&WebSocketManagerType::Write, contextSP->_wsManager, std::placeholders::_1);
 
   contextSP->_krakenStreamSP->ResetPosition();
-  contextSP->_wsManager->RegisterConnection(wsFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_krakenStreamSP, nullptr);	
-  contextSP->_eventMgr->Register(wsFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
+  contextSP->_wsManager->RegisterConnection(contextSP->_krakenFD, false, sslReadCB, sslWriteCB, onOpen, onText, contextSP->_krakenStreamSP, nullptr);	
+  contextSP->_eventMgr->Register(contextSP->_krakenFD, wsReadCB, wsWriteCB, closeSSL); // no race here as long as we dont call stream
 
   // Sets the end-point
   char uri[1024];
   snprintf(uri, 1024, "http://%s", hostname.c_str());
-  contextSP->_wsManager->Stream(wsFD, "/", hostname, uri);
+  contextSP->_wsManager->Stream(contextSP->_krakenFD, "/", hostname, uri);
 }
 
 int main(int argc, char **argv)
@@ -1588,6 +1593,26 @@ int main(int argc, char **argv)
   std::string adminPort;
   config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
   SetupSimpleServer<AdminManagerType>(interface, contextSP->_adminManager, contextSP->_eventMgr, atoi(adminPort.c_str()));
+
+  contextSP->_adminManager->RegisterCommand("stop", [wContext] (const std::vector<std::string> &cmd) -> void {
+		auto context = wContext.lock();
+		if (context) {
+		  if (cmd.size() == 2) {
+			 if (cmd[1] == "kraken") {
+				context->_consoleLogger->warn("Admin 'stop' [{0}] fd[{1}]", cmd[1], context->_krakenFD);						 
+				::shutdown(context->_krakenFD, SHUT_RDWR);
+			 } else if (cmd[1] == "coinbase") {
+				context->_consoleLogger->warn("Admin 'stop' [{0}] fd[{1}]", cmd[1], context->_coinbaseFD);
+				::shutdown(context->_coinbaseFD, SHUT_RDWR);
+			 } else {
+				context->_consoleLogger->error("Unkonwn [{0}]", cmd[1]);
+			 }
+		  } else {
+			 context->_consoleLogger->error("Admin '{0}' error", cmd[0]);
+		  }
+		}
+		return;
+	 });
 
   std::string protoPort;
   config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
