@@ -468,7 +468,6 @@ namespace coypu
 					 // data
 					 char data[16] = {};
 					 con->_stream->Pop(data, 5);
-					 assert(data[0] == 0); // compressed byte
 
 					 // TODO If this is a continuation we have to buffer the data until all is received.
 					 // Would require a continuationBuffer to do copy.
@@ -476,6 +475,8 @@ namespace coypu
 					 // grpc len
 					 uint32_t grpcLen = ntohl(*(reinterpret_cast<uint32_t *>(&data[1])));
 					 if (con->_lastPathMatch) {
+						assert(data[0] == 0); // compressed byte
+
 						// proto buf
 						proto_in_type gIn(con->_stream, con->_stream->CurrentOffset());
 						google::protobuf::io::CodedInputStream gInStream(&gIn);

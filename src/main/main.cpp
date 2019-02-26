@@ -163,6 +163,9 @@ const std::string COYPU_DEFAULT_ADMIN_PORT = "9999";
 const std::string COYPU_DEFAULT_PROTO_PORT = "8088";
 const std::string COYPU_DEFAULT_GRPC_PORT = "8089";
 
+const std::string COYPU_ADMIN_STOP = "stop";
+const std::string COYPU_ADMIN_QUEUE = "queue";
+
 typedef struct CoypuContextS {
   CoypuContextS (LogType &consoleLogger, LogType &wsLogger, LogType&httpLogger,
 					  const std::string &grpcPath) : _consoleLogger(consoleLogger), _krakenFD(-1), _coinbaseFD(-1)
@@ -1069,11 +1072,17 @@ void StreamKraken (std::shared_ptr<CoypuContext> contextSP, const std::string &h
   std::function<int(int)> closeSSL = [wContextSP] (int fd) {
 	 auto context = wContextSP.lock();
 	 if (context) {
+		static int krakenReconnects = 0;
 		context->_consoleLogger->info("StreamKraken closeSSL fd[{0}]", fd);
 		context->_openSSLMgr->Unregister(fd);
 		context->_wsManager->Unregister(fd);
-		context->_cbManager->Queue(CE_BOOK_CLEAR_KRAKEN);
-		context->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
+		++krakenReconnects;
+		if (krakenReconnects <= 16) {
+		  context->_cbManager->Queue(CE_BOOK_CLEAR_KRAKEN);
+		  context->_cbManager->Queue(CE_WS_CONNECT_KRAKEN);
+		} else {
+		  context->_consoleLogger->warn("Max Kraken Reconnects Reached [{0}]", krakenReconnects);
+		}
 	 }
 
 	 return 0;
@@ -1595,7 +1604,7 @@ int main(int argc, char **argv)
   config->GetValue("admin-port", adminPort, COYPU_DEFAULT_ADMIN_PORT);
   SetupSimpleServer<AdminManagerType>(interface, contextSP->_adminManager, contextSP->_eventMgr, atoi(adminPort.c_str()));
 
-  contextSP->_adminManager->RegisterCommand("stop", [wContext] (const std::vector<std::string> &cmd) -> void {
+  contextSP->_adminManager->RegisterCommand(COYPU_ADMIN_STOP, [wContext] (int, const std::vector<std::string> &cmd) -> void {
 		auto context = wContext.lock();
 		if (context) {
 		  if (cmd.size() == 2) {
@@ -1615,7 +1624,7 @@ int main(int argc, char **argv)
 		return;
 	 });
   
-    contextSP->_adminManager->RegisterCommand("queue", [wContext] (const std::vector<std::string> &cmd) -> void {
+  contextSP->_adminManager->RegisterCommand(COYPU_ADMIN_QUEUE, [wContext] (int, const std::vector<std::string> &cmd) -> void {
 		auto context = wContext.lock();
 		if (context) {
 		  if (cmd.size() == 2) {
@@ -1628,7 +1637,7 @@ int main(int argc, char **argv)
 		}
 		return;
 	 });
-
+  
   std::string protoPort;
   config->GetValue("proto-port", protoPort, COYPU_DEFAULT_PROTO_PORT);
   SetupSimpleServer<ProtoManagerType>(interface, contextSP->_protoManager, contextSP->_eventMgr, atoi(protoPort.c_str()));
@@ -1723,6 +1732,53 @@ int main(int argc, char **argv)
 	 }
   };
   contextSP->_protoManager->SetCallback(coypuRequestCB);
+
+  // Simple Connection Manager
+  int timerFD = TimerFDHelper::CreateMonotonicNonBlock();
+  TimerFDHelper::SetRelativeRepeating(timerFD, 5, 0);
+  std::function<int(int)> readTimerCB = [wContext] (int fd) { 
+	 static uint32_t checks = 0;
+	 static std::vector<std::pair<uint32_t, uint64_t>> _marks(16, std::pair<uint32_t,uint64_t>(0,0));
+
+	 // clear timer
+	 uint64_t x = UINT64_MAX;
+	 if (read(fd, &x, sizeof(uint64_t)) != sizeof(uint64_t)) {
+		// TODO some error
+		assert(false);
+	 }
+
+	 ++checks;
+	 auto context = wContext.lock();
+	 if (context) {
+		auto consoleLogger = spdlog::get("console");
+		while(_marks.size() < context->_krakenFD+1 ||
+				_marks.size() < context->_coinbaseFD+1) {
+		  _marks.resize(_marks.size()+16, std::pair<uint32_t, uint64_t>(0,0));
+		}
+		
+		if (context->_krakenFD >= 0) {
+		  uint64_t events = context->_eventMgr->GetEventCount(context->_krakenFD);
+		  uint64_t lastEvents = _marks[context->_krakenFD].second;
+		  uint32_t lastMark = _marks[context->_krakenFD].first;
+		  
+		  if (checks%100 == 0) {
+			 consoleLogger->debug("Kraken Events[{0} :: {1} vs {2}]", checks, events, lastEvents);
+		  }
+		  if (events > lastEvents) {
+			 _marks[context->_krakenFD].first = checks;
+			 _marks[context->_krakenFD].second = events;
+		  } else if (lastMark - checks > 16) {
+			 // if no events force a shutdown to cleanup
+			 consoleLogger->warn("Kraken Close Events[{0} :: {1} vs {2}]", checks, events, lastEvents);
+			 ::shutdown(context->_krakenFD, SHUT_RDWR);
+		  }
+		}
+	 }
+	 
+	 return 0;
+  };
+  contextSP->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
+  // END Simple Connection Manager
 	
   // watch out for threading on loggers
   std::thread t1(bar, contextSP, std::ref(done));

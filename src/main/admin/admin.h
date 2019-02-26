@@ -13,7 +13,7 @@ namespace coypu {
         template <typename LogTrait>
         class AdminManager {
             public:
-                typedef std::function<void(const std::vector<std::string> &cmd)> callback_type;
+			 typedef std::function<void(int fd, const std::vector<std::string> &cmd)> callback_type;
                 typedef std::function<int(int)> write_cb_type;
 
                 AdminManager (LogTrait logger, 
@@ -69,8 +69,10 @@ namespace coypu {
                             if (tokens.size() > 0) {
                                 auto b = _commands.find(tokens[0]);
                                 if (b != _commands.end()) {
-                                    (*b).second(tokens);
-                                }
+											 (*b).second(fd, tokens);
+                                } else {
+											 _logger->warn("Unknown command[{0}]", tokens[0]);
+										  }
                             }
                             // con->_writeBuf->Push('f');
                             // con->_writeBuf->Push('o');

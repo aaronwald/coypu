@@ -23,7 +23,10 @@ namespace  coypu
         template <typename LogTrait>
         class EventManager {
             public:
-			 EventManager (LogTrait logger) : _emptyCB(nullptr), _growSize(8), _fdToCB(_growSize, _emptyCB),_fd(0), _logger(logger),
+			 EventManager (LogTrait logger) : _emptyCB(nullptr), _growSize(8),
+				_fdToCB(_growSize, _emptyCB),
+				_fdEvents(_growSize, 0),
+				_fd(0), _logger(logger),
                 _timeout(1000), _maxEvents(16), _outEvents(nullptr) {
                     _outEvents = reinterpret_cast<struct epoll_event *>(malloc(sizeof(struct epoll_event) * _maxEvents));
                 }
@@ -67,11 +70,13 @@ namespace  coypu
                     cb->_fd = fd;
 						  while (_fdToCB.size() < fd+1) {
 							 _fdToCB.resize(_fdToCB.size()+_growSize, _emptyCB);
+							 _fdEvents.resize(_fdEvents.size()+_growSize, 0);
 						  }
 
                     assert(fd < _fdToCB.capacity());
 						  assert(_fdToCB[fd].get() == nullptr);
                     _fdToCB[fd] = cb;
+						  _fdEvents[fd] = 0; // reset
 
                     event.data.fd = fd;
 
@@ -105,6 +110,12 @@ namespace  coypu
                     return r;
                 }
 
+					 uint64_t GetEventCount (int fd) {
+						assert(fd >= 0);
+						assert(fd < _fdEvents.size());
+						return _fdEvents[fd];
+					 }
+
                 int Wait () {
                     int count = ::epoll_wait(_fd, _outEvents, _maxEvents, _timeout);
                     if (count > 0) {
@@ -114,6 +125,7 @@ namespace  coypu
                         for (int i = 0; i < count; ++i) {
 									 std::shared_ptr<event_cb_type> &cb = _fdToCB[_outEvents[i].data.fd];
 									 assert(cb);
+									 ++_fdEvents[_outEvents[i].data.fd];
 									 
                             if (_outEvents[i].events & (EPOLLIN|EPOLLPRI)) {
                                 if (cb->_rf) {
@@ -189,6 +201,7 @@ namespace  coypu
 					 std::shared_ptr<event_cb_type> _emptyCB;
 					 uint32_t _growSize;
                 std::vector <std::shared_ptr<event_cb_type>> _fdToCB;
+					 std::vector <uint64_t> _fdEvents;
 
                 int _fd;
                 LogTrait _logger;
