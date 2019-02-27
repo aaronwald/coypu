@@ -4,7 +4,15 @@
 namespace coypu {
   namespace cache {
 	 // Would need a more advanced publish stream to target - allows fd target to fix pong
-	 // Record per tag - mark with offset / no seqno
+
+	 // TagCache <Tag> - just 64 bytes, seq no is the tag id. quick restore
+
+	 // Tags <Offset Id, Tag Id, fd>
+	 // - For multiple tags, we can just track offset, if we've written then we can ignore subsequent interest
+
+	 // Sub is <fd, bitset<tags>> (could be bloom later)
+
+	 
 	 // rawPersist -> Protobuf type,size,hdr(with stags),msg -> Generate tag cache -> TagCache & PublishCache (?)
 	 // if tags exit then the hashValue can be stored and computed just once
 	 // could also just use tagId in filter? doesnt need to be bloom if the set is not that big?

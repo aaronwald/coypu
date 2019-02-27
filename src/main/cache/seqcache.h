@@ -10,7 +10,9 @@
 #include <string>
 #include <iostream>
 #include <streambuf>
+#include "rigtorp/Seqlock.h"
 
+// use Seqlock to allow reads (spin read - write is non-block)
 namespace coypu {
   namespace cache {
 	 template <typename CacheType, int SizeCheck, typename LogStreamTrait, typename MergeTrait>
@@ -44,11 +46,20 @@ namespace coypu {
 		uint64_t CheckSeq () {
 		  return _nextSeqNo;
 		}
-                
+
 		int Push (CacheType &t) {
 		  t._seqno = NextSeq();
 		  Store(t);
 		  return _stream->Push(reinterpret_cast<const char *>(&t), SizeCheck);
+		}
+		
+		bool Load (const key_type &key, CacheType &out) {
+		  auto b = _cacheMap.find(key);
+		  if (b != _cacheMap.end()) {
+			 out = (*b).second->load();
+			 return true;
+		  }
+		  return false;
 		}
 
 		// friend functions
@@ -59,7 +70,8 @@ namespace coypu {
 
 		uint64_t _nextSeqNo;
 
-		std::unordered_map <key_type, CacheType> _cacheMap;
+		typedef std::shared_ptr<rigtorp::Seqlock<CacheType>> store_type;
+		std::unordered_map <key_type, store_type> _cacheMap;
 
 		std::shared_ptr<LogStreamTrait> _stream;
 
@@ -67,21 +79,23 @@ namespace coypu {
 		  key_type key(c._key);
 		  auto i = _cacheMap.find(key);
 		  if (i == _cacheMap.end()) {
-			 return _cacheMap.insert(std::make_pair(key, c)).second;
+			 store_type sp = std::make_shared<rigtorp::Seqlock<CacheType>>();
+			 sp->store(c);
+			 return _cacheMap.insert(std::make_pair(key,sp)).second;
 		  } else {
-			 if (c._seqno > (*i).second._seqno) {
-				(*i).second = c;
-			 }
+			 (*i).second->store(c);
 		  }
 
 		  return true;
 		}
 
+
 		void Dump (std::ostream &out) const {
 		  auto b = _cacheMap.begin();
 		  auto e = _cacheMap.end();
 		  for (;b!=e; ++b) {
-			 out << (*b).first << " [" << (*b).second._seqno << "] O[" << (*b).second._origseqno << "], ";
+			 CacheType z = (*b).second->load();
+			 out << (*b).first << " [" << z._seqno << "] O[" << z._origseqno << "], ";
 		  }
 		}
 	 };

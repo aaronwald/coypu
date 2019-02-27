@@ -47,14 +47,20 @@ file(GLOB_RECURSE COYPU_SRC ${PROJECT_SOURCE_DIR}/src/main/*.cpp)
 list(FILTER COYPU_SRC EXCLUDE REGEX ".*main.cpp$")
 file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
 
+IF (NOT GIT_FOUND)
+  message(FATAL_ERROR "Git not found")
+endif()
+
+# https://cliutils.gitlab.io/modern-cmake/chapters/projects/submodule.html
 function(git_submodule MOD)
   message(STATUS "Git submodule: " ${MOD})
-  execute_process(COMMAND git submodule update --init --recursive
-                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                        RESULT_VARIABLE GIT_SUBMOD_RESULT
-								OUTPUT_VARIABLE GIT_SUBMOD_OUTPUT)
-  message(STATUS ${GIT_SUBMOD_RESULT})
-  message(STATUS ${GIT_SUBMOD_OUTPUT})
+  execute_process(COMMAND ${GIT_EXECUTABLE}  submodule update --init --recursive
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE GIT_SUBMOD_RESULT
+	 OUTPUT_VARIABLE GIT_SUBMOD_OUTPUT)
+  if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+    message(FATAL_ERROR "git submodule update --init failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
+  endif()
 endfunction()
 
 # Init submodules
@@ -63,6 +69,7 @@ git_submodule("libs/seqlock")
 
 include_directories(${PROJECT_SOURCE_DIR}/src/main)
 include_directories(${PROJECT_SOURCE_DIR}/libs/rapidjson/include/)
+include_directories(${PROJECT_SOURCE_DIR}/libs/seqlock/include/)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/src)
 
 set(BPF_SRC ${PROJECT_SOURCE_DIR}/src/bpf/bpf_load.c ${PROJECT_SOURCE_DIR}/src/bpf/libbpf.c ${PROJECT_SOURCE_DIR}/src/bpf/nutria_bpf.c)

@@ -47,6 +47,8 @@
 #include "http2/http2.h"
 #include "proto/coincache.pb.h"
 
+#include "rigtorp/Seqlock.h"
+
 using namespace rapidjson;
 // using json = nlohmann::json;
 
@@ -128,7 +130,7 @@ struct CoinCache {
   double _open;
   double _last;
 
-  CoinCache (uint64_t seqNo) : _seqno(seqNo), _origseqno(0), 
+  CoinCache (uint64_t seqNo = UINT64_MAX) : _seqno(seqNo), _origseqno(0), 
 										 _seconds(0), _milliseconds(0), _high24(0), _low24(0),
 										 _vol24(0), _open(0), _last(0) {
 	 ::memset(_key, 0, sizeof(_key));
@@ -214,7 +216,7 @@ typedef struct CoypuContextS {
   std::unordered_map<int, std::pair<std::string, std::string>> _krakenChannelToPairType;
 } CoypuContext;
 
-void bar (std::shared_ptr<CoypuContext> context, bool &done) {
+void EventMgrWait (std::shared_ptr<CoypuContext> &context, bool &done) {
   CPUManager::SetName("coypu_epoll");
 
   while (!done) {
@@ -1784,14 +1786,17 @@ int main(int argc, char **argv)
   };
   contextSP->_eventMgr->Register(timerFD, readTimerCB, nullptr, nullptr);
   // END Simple Connection Manager
-	
-  // watch out for threading on loggers
-  std::thread t1(bar, contextSP, std::ref(done));
-  t1.join();
+
+  //  std::thread t1(EventMgrWait, contextSP, std::ref(done));
+  //t1.join();
+
+  // single thread
+  EventMgrWait(contextSP, std::ref(done));
   contextSP->_eventMgr->Close();
 
+  // cleanup protobuf
   google::protobuf::ShutdownProtobufLibrary();
-	
+  
   return 0;
 }
 
