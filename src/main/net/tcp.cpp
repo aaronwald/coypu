@@ -48,6 +48,13 @@ int TCPHelper::ConnectStream (const char *host, int port) {
 }
 
 
+int TCPHelper::GetTCPFastOpen(int fd, int &fastopen) {
+    unsigned int optlen = sizeof(unsigned int);
+    int res = ::getsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN, &fastopen, &optlen);
+	 return res;
+}
+
+
 int TCPHelper::GetSendRecvSize (int fd, int &sendSize, int &recvSize) {
     unsigned int optlen = sizeof(unsigned int);
     int res = ::getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sendSize, &optlen);

@@ -17,8 +17,10 @@ list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
 set(CMAKE_FIND_LIBRARY_PREFIXES lib ${CMAKE_FIND_LIBRARY_PREFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES .a .so ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
+find_package(Git QUIET)
 include(GetGitRevisionDescription)
 get_git_head_revision(GIT_REFSPEC GIT_SHA1)
+
 
 configure_file("src/main/version.h.in" "../src/main/version.h")
 
@@ -45,6 +47,19 @@ file(GLOB_RECURSE COYPU_SRC ${PROJECT_SOURCE_DIR}/src/main/*.cpp)
 list(FILTER COYPU_SRC EXCLUDE REGEX ".*main.cpp$")
 file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
 
+function(git_submodule MOD)
+  message(STATUS "Git submodule: " ${MOD})
+  execute_process(COMMAND git submodule update --init --recursive
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                        RESULT_VARIABLE GIT_SUBMOD_RESULT
+								OUTPUT_VARIABLE GIT_SUBMOD_OUTPUT)
+  message(STATUS ${GIT_SUBMOD_RESULT})
+  message(STATUS ${GIT_SUBMOD_OUTPUT})
+endfunction()
+
+# Init submodules
+git_submodule("libs/rapidjson")
+git_submodule("libs/seqlock")
 
 include_directories(${PROJECT_SOURCE_DIR}/src/main)
 include_directories(${PROJECT_SOURCE_DIR}/libs/rapidjson/include/)

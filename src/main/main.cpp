@@ -532,8 +532,13 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
   int clientfd = TCPHelper::AcceptNonBlock(fd, reinterpret_cast<struct sockaddr *>(&client_addr), &addrlen);
   if (TCPHelper::SetNoDelay(clientfd)) {
   }
+
+  int fastopen = 0;
+  TCPHelper::GetTCPFastOpen(clientfd, fastopen);
+  int send = 0, recv = 0;
+  TCPHelper::GetSendRecvSize(clientfd, send, recv);
   
-  logger->info("accept ws {0}", clientfd);
+  logger->info("accept ws fd[{0}] fastopen[{1}] send[{2}] recv[{3}]", clientfd, fastopen, send, recv);
   
   if (context) {
 	 std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();

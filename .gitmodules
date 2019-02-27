@@ -1,0 +1,6 @@
+[submodule "libs/rapidjson"]
+	path = libs/rapidjson
+	url = https://github.com/Tencent/rapidjson.git
+[submodule "libs/seqlock"]
+	path = libs/seqlock
+	url = https://github.com/rigtorp/Seqlock.git

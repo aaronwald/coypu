@@ -31,6 +31,7 @@ namespace coypu {
                 static int GetSockNameIPV4 (int sockFD, struct sockaddr_in *serv_addr);
 
                 static int GetSendRecvSize (int fd, int &sendSize, int &recvSize);
+					 static int GetTCPFastOpen (int fd, int &fastopen);
                 static int SetSendSize (int fd, int sendSize);
                 static int SetRecvSize (int fd, int recvSize);
 
