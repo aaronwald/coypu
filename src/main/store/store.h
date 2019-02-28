@@ -1,5 +1,4 @@
-#ifndef __COYPU_STORE_H
-#define __COYPU_STORE_H
+#pragma once
 
 #include <iostream>
 #include <sys/uio.h>
@@ -954,4 +953,3 @@ namespace coypu {
   }
 }
 
-#endif

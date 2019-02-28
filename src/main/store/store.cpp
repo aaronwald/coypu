@@ -4,5 +4,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "store.h"
+#include "storeutil.h"
 
 using namespace coypu::store;

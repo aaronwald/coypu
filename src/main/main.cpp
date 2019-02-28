@@ -37,6 +37,7 @@
 #include "mem/mem.h"
 #include "file/file.h"
 #include "store/store.h"
+#include "store/storeutil.h"
 #include "buf/buf.h"
 #include "cache/seqcache.h"
 #include "book/level.h"
@@ -289,47 +290,6 @@ int RestoreStore (const std::string &name, const std::function<void(const char *
   return 0;
 }
 
-template <typename StreamType, typename BufType>
-std::shared_ptr <StreamType> CreateStore (const std::string &name) {
-  bool fileExists = false;
-  char storeFile[PATH_MAX];
-  std::shared_ptr<StreamType> streamSP = nullptr; 
-		
-  FileUtil::Mkdir(name.c_str(), 0777, true);
-	
-  // TODO if we go backward it will be quicker (less copies?)
-  for (uint32_t index = 0; index < UINT32_MAX; ++index) {
-	 ::snprintf(storeFile, PATH_MAX, "%s.%09d.store", name.c_str(), index);
-	 fileExists = false;
-	 FileUtil::Exists(storeFile, fileExists);
-	 if (!fileExists) {
-		// open in direct mode
-		int fd = FileUtil::Open(storeFile, O_CREAT|O_LARGEFILE|O_RDWR|O_DIRECT, 0600);
-		if (fd >= 0) {
-		  int pageMult = 64;
-		  size_t pageSize = pageMult * MemManager::GetPageSize();
-		  off64_t curSize = 0;
-		  FileUtil::GetSize(fd, curSize);
-
-		  std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, fd, false);
-		  streamSP = std::make_shared<StreamType>(bufSP);
-		} else {
-		  return nullptr;
-		}
-		return streamSP;
-	 }
-  }
-  return nullptr;
-}
-
-template <typename StreamType, typename BufType>
-std::shared_ptr <StreamType> CreateAnonStore () {
-  int pageMult = 64;
-  size_t pageSize = pageMult * MemManager::GetPageSize();
-  off64_t curSize = 0;
-  std::shared_ptr<BufType> bufSP = std::make_shared<BufType>(pageSize, curSize, -1, true);
-  return std::make_shared<StreamType>(bufSP);
-}
 
 int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::string &interface, uint16_t port) {
   int sockFD = TCPHelper::CreateIPV4NonBlockSocket();
@@ -465,11 +425,11 @@ void SetupSimpleServer (std::string &interface,
 void CreateStores(std::shared_ptr<CoypuConfig> &config, std::shared_ptr<CoypuContext> &contextSP) {
   std::string publish_path;
   config->GetValue("coypu-publish-path", publish_path, COYPU_PUBLISH_PATH);
-  contextSP->_publishStreamSP = CreateStore<PublishStreamType, RWBufType>(publish_path); 
+  contextSP->_publishStreamSP = coypu::store::StoreUtil::CreateRollingStore<PublishStreamType, RWBufType>(publish_path); 
 
   std::string cache_path;
   config->GetValue("coypu-cache-path", cache_path, COYPU_CACHE_PATH);
-  contextSP->_cacheStreamSP = CreateStore<PublishStreamType, RWBufType>(cache_path); 
+  contextSP->_cacheStreamSP = coypu::store::StoreUtil::CreateRollingStore<PublishStreamType, RWBufType>(cache_path); 
 
   contextSP->_coinCache = std::make_shared<CacheType>(contextSP->_cacheStreamSP);
 
@@ -543,7 +503,7 @@ void AcceptWebsocketClient (std::shared_ptr<CoypuContext> &context, const LogTyp
   logger->info("accept ws fd[{0}] fastopen[{1}] send[{2}] recv[{3}]", clientfd, fastopen, send, recv);
   
   if (context) {
-	 std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+	 std::shared_ptr<AnonStreamType> txtBuf = coypu::store::StoreUtil::CreateAnonStore<AnonStreamType, AnonRWBufType>();
 	 context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
 	 
 	 uint64_t init_offset = UINT64_MAX;
@@ -669,7 +629,7 @@ void AcceptHTTP2Client (std::shared_ptr<CoypuContext> &context, const LogType &l
   logger->info("accept http2 {0}", clientfd);
   
   if (context) {
-	 std::shared_ptr<AnonStreamType> txtBuf = CreateAnonStore<AnonStreamType, AnonRWBufType>();
+	 std::shared_ptr<AnonStreamType> txtBuf = coypu::store::StoreUtil::CreateAnonStore<AnonStreamType, AnonRWBufType>();
 	 context->_txtBufs->insert(std::make_pair(clientfd, txtBuf));
 	 
 	 uint64_t init_offset = UINT64_MAX;
