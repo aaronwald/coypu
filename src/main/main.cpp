@@ -40,6 +40,7 @@
 #include "store/storeutil.h"
 #include "buf/buf.h"
 #include "cache/seqcache.h"
+#include "cache/tagcache.h"
 #include "book/level.h"
 #include "util/backtrace.h"
 #include "admin/admin.h"
@@ -158,6 +159,7 @@ typedef ProtoManager<LogType, coypu::msg::CoypuRequest, coypu::msg::CoypuMessage
 typedef OpenSSLManager <LogType> SSLType;
 typedef std::function<void(void)> CBType;
 typedef std::unordered_map <int, std::shared_ptr<AnonStreamType>> TxtBufMapType;
+typedef TagStream<Tag> TagStreamType;
 // END Coypu Types
 
 const std::string COYPU_PUBLISH_PATH = "stream/publish/data";
@@ -213,6 +215,7 @@ typedef struct CoypuContextS {
   std::shared_ptr <StreamType> _gdaxStreamSP;
   std::shared_ptr <StreamType> _krakenStreamSP;
   std::shared_ptr <EventCBManager<CBType>> _cbManager;
+  std::shared_ptr <TagStreamType> _tagManager;
 
   std::unordered_map<int, std::pair<std::string, std::string>> _krakenChannelToPairType;
 } CoypuContext;
@@ -329,6 +332,24 @@ int BindAndListen (const std::shared_ptr<coypu::SPDLogger> &logger, const std::s
 	 return -1;
   }
   return sockFD;
+}
+
+std::shared_ptr<TagStreamType> CreateTagManager (std::shared_ptr<CoypuContext> &contextSP) {
+  int fd = EventFDHelper::CreateNonBlockEventFD(0);
+  if (fd < 0) return nullptr;
+
+  std::shared_ptr <TagStreamType> sp = std::make_shared<TagStreamType>(fd, contextSP->_set_write_ws);
+
+  std::function<int(int)> readCB = std::bind(&TagStreamType::Read, sp, std::placeholders::_1);
+  std::function<int(int)> writeCB = std::bind(&TagStreamType::Write, sp, std::placeholders::_1);
+  std::function<int(int)> closeCB = std::bind(&TagStreamType::Close, sp, std::placeholders::_1);
+  if (contextSP->_eventMgr->Register(fd, readCB, writeCB, closeCB) != 0) {
+	 std::cerr << "Failed to register queue" << std::endl;
+	 assert(false);
+	 return nullptr;
+  }
+
+  return sp;
 }
 
 template <typename T, typename X>
@@ -950,7 +971,9 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
 				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
 				  cMsg.SerializeToCodedStream(&coded_output);
-				  
+
+				  Tag tag;
+				  context->_tagManager->Queue(tag);
 				  /*
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
@@ -1425,7 +1448,7 @@ int main(int argc, char **argv)
   contextSP->_eventMgr->Init(); // needs to happens before cb manager so we can register the queue.
 
   contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
-
+  contextSP->_tagManager = CreateTagManager(contextSP);
 
   CreateStores(config, contextSP);
 

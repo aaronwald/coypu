@@ -1,5 +1,4 @@
-#ifndef __COYPU_EVENTMGR_H
-#define __COYPU_EVENTMGR_H
+#pragma once
 
 #include <iostream>
 #include <errno.h>
@@ -302,6 +301,3 @@ namespace  coypu
 		  };
     } // event
 } //  coypu
-
-
-#endif

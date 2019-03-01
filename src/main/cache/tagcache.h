@@ -26,11 +26,10 @@ namespace coypu {
 
 	 struct Tag {
 		uint64_t _offset;
+		uint64_t _len;
 		uint64_t _hashValue; // murmur + sha256? - check bit % maxBits - can just grow bits per tag, and just expand on connection to support max size
 		uint32_t _tagId;
 		int _fd;
-
-		char _pad[8];
 	 };
 
 	 class TagSub {
@@ -65,6 +64,7 @@ namespace coypu {
 		std::vector<bool> _tags;
 	 };
 
+	 // positioned 
 	 class TagOffsetStore {
 	 public:
 		typedef Tag tag_type;
@@ -192,6 +192,66 @@ namespace coypu {
 
 		std::vector<std::string> _tags;
 		std::unordered_map<std::string, tag_id_type> _tagToId;
+	 };
+	 
+	 template <typename TagType>
+		class TagStream {
+	 public:
+		typedef std::function<int(int)> write_cb_type;
+
+		// fd should be eventfd()
+	 TagStream(int fd, write_cb_type set_write) : _fd(fd), _set_write(set_write) {
+		}
+
+		virtual ~TagStream() {
+		}
+
+
+		int Read (int fd) {
+		  uint64_t u = UINT64_MAX;
+		  int r = ::read(_fd, &u, sizeof(uint64_t));
+		  if (r > 0) {
+			 assert(r == sizeof(uint64_t));
+			 if (r < sizeof(uint64_t)) return -128;
+
+			 std::cout << "tag:" << u << std::endl;
+			 
+ 			 return 0;
+		  }
+		  return r;
+		}
+
+		int Write (int fd) {
+		  // write queue
+		  uint64_t u = 1;
+		  int r = ::write(_fd, &u, sizeof(uint64_t));
+								
+		  if (r > 0) {
+			 assert(r == sizeof(uint64_t));
+			 if (r < sizeof(uint64_t)) return -128;
+			 return 0;
+		  }
+		  assert(false);
+				
+		  return -1;
+		}
+
+		int Close (int fd) {
+		  return -1;
+		}
+
+		void Queue (const TagType &tag) {
+		  _set_write(_fd);
+		}
+
+	 private:
+		TagStream (const TagStream &other) = delete;
+		TagStream &operator= (const TagStream &other) = delete;
+		TagStream (const TagStream &&other) = delete;
+		TagStream &operator= (const TagStream &&other) = delete;
+			 
+		int _fd;
+		write_cb_type _set_write;
 	 };
   }
 }

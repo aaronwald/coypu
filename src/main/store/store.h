@@ -885,7 +885,6 @@ namespace coypu {
 			 return false;
 		  }
 
-
         int Unregister (int fd) {
             if (fd >= _curOffsets.size()) return -3;
             _curOffsets[fd] = UINT64_MAX;
@@ -902,7 +901,6 @@ namespace coypu {
           }
           return r;
         }
-
 
         typename S::offset_type Available (int fd) const {
           if (fd >= _curOffsets.size()) return 0;
@@ -928,7 +926,6 @@ namespace coypu {
           return _stream->Available() - _curOffsets[fd] == 0;
         }
 
-
         inline typename S::offset_type Free() const {
           return _stream->Free();
         }
@@ -948,8 +945,6 @@ namespace coypu {
         std::shared_ptr<S> _stream;
         std::vector<typename S::offset_type> _curOffsets;
     };
-
-
   }
 }
 

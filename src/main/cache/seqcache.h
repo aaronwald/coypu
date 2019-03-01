@@ -1,6 +1,4 @@
-
-#ifndef __COYPU_SEQ_CACHE
-#define __COYPU_SEQ_CACHE
+#pragma once
 
 #include <stdint.h>
 #include <vector>
@@ -108,4 +106,4 @@ namespace coypu {
   }
 }
 
-#endif
+
