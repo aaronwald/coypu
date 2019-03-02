@@ -216,6 +216,7 @@ typedef struct CoypuContextS {
   std::shared_ptr <StreamType> _krakenStreamSP;
   std::shared_ptr <EventCBManager<CBType>> _cbManager;
   std::shared_ptr <TagStreamType> _tagManager;
+  std::shared_ptr <TagStore> _tagStore;
 
   std::unordered_map<int, std::pair<std::string, std::string>> _krakenChannelToPairType;
 } CoypuContext;
@@ -338,7 +339,7 @@ std::shared_ptr<TagStreamType> CreateTagManager (std::shared_ptr<CoypuContext> &
   int fd = EventFDHelper::CreateNonBlockEventFD(0);
   if (fd < 0) return nullptr;
 
-  std::shared_ptr <TagStreamType> sp = std::make_shared<TagStreamType>(fd, contextSP->_set_write_ws);
+  std::shared_ptr <TagStreamType> sp = std::make_shared<TagStreamType>(fd, contextSP->_set_write_ws, "tag/tagOffsets.store");
 
   std::function<int(int)> readCB = std::bind(&TagStreamType::Read, sp, std::placeholders::_1);
   std::function<int(int)> writeCB = std::bind(&TagStreamType::Write, sp, std::placeholders::_1);
@@ -967,13 +968,21 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  trade->set_last_size(atof(lastSize));
 				  trade->set_trade_id(tradeId);
 
-				  WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
-				  LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
-				  google::protobuf::io::CodedOutputStream coded_output(&zOutput);
-				  cMsg.SerializeToCodedStream(&coded_output);
+				  uint64_t before = context->_publishStreamSP->Available();
+				  {
+					 WebSocketManagerType::WriteFrame(context->_publishStreamSP, coypu::http::websocket::WS_OP_BINARY_FRAME, false, cMsg.ByteSize());
+					 LogZeroCopyOutputStream<std::shared_ptr <PublishStreamType>> zOutput(context->_publishStreamSP);
+					 google::protobuf::io::CodedOutputStream coded_output(&zOutput);
+					 cMsg.SerializeToCodedStream(&coded_output);
+					 // force coded to destruct
+				  }
+				  uint64_t after = context->_publishStreamSP->Available();
 
-				  Tag tag;
-				  context->_tagManager->Queue(tag);
+				  uint32_t tagId;
+				  if (!context->_tagStore->GetOrCreateTag(product, tagId)) {
+					 context->_consoleLogger->error("Failed to create tag for [{0}]", product);
+				  }
+				  context->_tagManager->Queue({before,after-before,1u,tagId,-1});
 				  /*
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
@@ -1449,6 +1458,10 @@ int main(int argc, char **argv)
 
   contextSP->_cbManager = CreateCBManager<CBType, EventManagerType>(contextSP);
   contextSP->_tagManager = CreateTagManager(contextSP);
+  contextSP->_tagStore = std::make_shared<TagStore>("tag/tags.store");
+  off64_t off = 0;
+  contextSP->_tagStore->Restore(off);
+  consoleLogger->info("Restored [{0}] Tags.", contextSP->_tagStore->GetTagCount());
 
   CreateStores(config, contextSP);
 

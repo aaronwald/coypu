@@ -25,7 +25,8 @@ TEST(CacheTest, TagTest1)
 	
 	TagStore tagCache2(buf);
 	ASSERT_TRUE(tagCache2.IsOpen());
-	ASSERT_TRUE(tagCache2.Restore());
+	off64_t off = 0;
+	ASSERT_TRUE(tagCache2.Restore(off));
 
 	ASSERT_FALSE(tagCache2.FindTag("tagc", outId));
 	ASSERT_TRUE(tagCache2.FindTag("tagb", outId));	
@@ -56,4 +57,38 @@ TEST(CacheTest, TagTest3)
   ASSERT_TRUE(sub.IsSet(89));
   sub.Clear(89);
   ASSERT_FALSE(sub.IsSet(89));
+}
+
+TEST(CacheTest, TagTest4) 
+{
+	char buf[1024];
+	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
+	ASSERT_NO_THROW(FileUtil::Close(fd));
+
+	TagStore tagCache(buf);
+	ASSERT_TRUE(tagCache.IsOpen());
+
+	TagStore::tag_id_type outId;
+	off64_t off = 0;
+	ASSERT_TRUE(tagCache.Restore(off));
+	ASSERT_TRUE(tagCache.Append("taga", outId));
+	ASSERT_EQ(outId, 0);
+	ASSERT_TRUE(tagCache.Append("tagb", outId));
+	ASSERT_EQ(outId, 1);
+	ASSERT_EQ(tagCache.GetTagCount(), 2);
+
+	TagStore tagCache2(buf);
+	ASSERT_TRUE(tagCache2.IsOpen());
+	ASSERT_TRUE(tagCache2.Restore(off));
+	ASSERT_EQ(tagCache2.GetTagCount(), 2);
+	ASSERT_TRUE(tagCache2.Append("tagc", outId));
+	ASSERT_EQ(outId, 2);
+	ASSERT_EQ(tagCache2.GetTagCount(), 3);
+
+	TagStore tagCache3(buf);
+	ASSERT_TRUE(tagCache3.IsOpen());
+	ASSERT_TRUE(tagCache3.Restore(off));
+	ASSERT_EQ(tagCache3.GetTagCount(), 3);
+	
+	ASSERT_NO_THROW(FileUtil::Remove(buf));
 }

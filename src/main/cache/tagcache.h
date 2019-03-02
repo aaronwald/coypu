@@ -103,15 +103,14 @@ namespace coypu {
 		virtual ~TagStore () noexcept {
 		}
 
-		bool Restore () {
+		bool Restore (off64_t &off) {
 		  if (!IsOpen()) {
 			 return false;
 		  }
 
 		  char in_tag[MAX_TAG_LEN];
 		  off64_t avail = _tagBuf->Available();
-		  off64_t off = 0;
-		  
+		  off = 0;
 		  for (;off < avail; ) {
 			 if (avail-off < sizeof(size_t)) return false;
 
@@ -135,13 +134,18 @@ namespace coypu {
 
 			 ++_nextId;
 		  }
-
-		  return true;
+		  
+		  return _tagBuf->SetPosition(off);
 		}
 
 		std::string GetTag (tag_id_type id) {
 		  if (id < _tags.size()) return _tags[id];
 		  return "";
+		}
+
+		bool GetOrCreateTag (const std::string &tag, tag_id_type &outid) {
+		  if (FindTag(tag, outid)) return true;
+		  return Append(tag, outid);
 		}
 
 		bool FindTag(const std::string &tag, tag_id_type &outid) {
@@ -200,7 +204,8 @@ namespace coypu {
 		typedef std::function<int(int)> write_cb_type;
 
 		// fd should be eventfd()
-	 TagStream(int fd, write_cb_type set_write) : _fd(fd), _set_write(set_write) {
+	 TagStream(int fd, write_cb_type set_write,
+				  const std::string &storePath) : _fd(fd), _set_write(set_write),_offsetStore(storePath) {
 		}
 
 		virtual ~TagStream() {
@@ -213,12 +218,15 @@ namespace coypu {
 		  if (r > 0) {
 			 assert(r == sizeof(uint64_t));
 			 if (r < sizeof(uint64_t)) return -128;
-
-			 std::cout << "tag:" << u << std::endl;
 			 
  			 return 0;
 		  }
 		  return r;
+		}
+
+		// this should be called when the output fd is right
+		int StreamWrite(int fd) {
+		  return -1;
 		}
 
 		int Write (int fd) {
@@ -241,6 +249,7 @@ namespace coypu {
 		}
 
 		void Queue (const TagType &tag) {
+		  _offsetStore.Append(tag);
 		  _set_write(_fd);
 		}
 
@@ -252,6 +261,8 @@ namespace coypu {
 			 
 		int _fd;
 		write_cb_type _set_write;
+		TagOffsetStore _offsetStore;
+
 	 };
   }
 }

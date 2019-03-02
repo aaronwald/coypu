@@ -98,9 +98,42 @@ namespace coypu {
 			 return true;
 		  }
 
+		  bool SetPosition (off64_t offset) {
+			 if (offset % _pageSize == 0) return true;
+			 return PositionPage(offset) == 0;
+		  }
+
       private:
         LogWriteBuf (const LogWriteBuf &other);
         LogWriteBuf &operator= (const LogWriteBuf &other);
+
+		  int PositionPage (off64_t offset) {
+			 _offset = (offset / _pageSize) * _pageSize; // to nearets page
+			 
+			 if (!_anonymous) {
+				if (MMapProvider::LSeekSet(_fd, _offset) != _offset) {
+				  return -2;
+				}
+
+				if (_dataPage.first) {
+				  MMapProvider::MUnmap(_dataPage.first, _pageSize);
+				}
+			 }
+
+			 _dataPage.first = reinterpret_cast<char *>(MMapProvider::MMapWrite(_fd, _offset, _pageSize));
+
+			 if (_allocate_cb) {
+				_allocate_cb(_dataPage.first, _offset);
+			 }
+			 
+          if (!_dataPage.first) {
+            return -3;
+          }
+          _dataPage.second = offset % _pageSize;
+
+          return 0;
+
+		  }
 
         int AllocatePage () {
 			 if (!_anonymous) {
@@ -708,8 +741,11 @@ namespace coypu {
           return cb(fd, iov, iov_i);
         }
 
+		  bool SetPosition (off64_t offset) {
+			 return _writeBuf.SetPosition(offset);
+		  }
+
 		  bool Backup (int count) {
-			 // nop - should be enable_if
 			 return true;
 		  }
 
@@ -902,6 +938,10 @@ namespace coypu {
           return r;
         }
 
+		  typename S::offset_type Available () const {
+			 return _stream->Available();
+		  }
+						
         typename S::offset_type Available (int fd) const {
           if (fd >= _curOffsets.size()) return 0;
           if (_curOffsets[fd] == UINT64_MAX) return 0; //unregistered
