@@ -27,10 +27,12 @@ namespace coypu {
 	 struct Tag {
 		uint64_t _offset;
 		uint64_t _len;
-		uint64_t _hashValue; // murmur + sha256? - check bit % maxBits - can just grow bits per tag, and just expand on connection to support max size
+		uint64_t _streamid;  // ephemeral stream? only resend streams after startup time?
 		uint32_t _tagId;
-		int _fd;
+		int _fd;             // one shot how. set to -2 when done?
 	 };
+
+	 // TODO BLOOM: murmur + sha256? - check bit % maxBits - can just grow bits per tag, and just expand on connection to support max size
 
 	 class TagSub {
 	 public:
@@ -51,9 +53,13 @@ namespace coypu {
 		  }
 		}
 
+		void ClearAll () {
+		  _tags.clear();
+		}
+
 		void Set(uint32_t tagid) {
 		  if (tagid >= _tags.size()) {
-			 _tags.resize(tagid+1,0);
+			 _tags.resize(tagid+16,0);
 		  }
 		  _tags[tagid] = true;
 		}
@@ -64,32 +70,6 @@ namespace coypu {
 		std::vector<bool> _tags;
 	 };
 
-	 // positioned 
-	 class TagOffsetStore {
-	 public:
-		typedef Tag tag_type;
-		
-		TagOffsetStore (const std::string &path) noexcept {
-		  _offsetStore = coypu::store::StoreUtil::CreateSimpleStore<stream_type, buf_type>(path, 1);
-		}
-
-		virtual ~TagOffsetStore() {
-		}
-
-		bool Append(const tag_type &tag) {
-		  return _offsetStore->Push(reinterpret_cast<const char *>(&tag), sizeof(tag_type)) == 0;
-		}
-
-	 private:
-		typedef coypu::store::LogRWStream<coypu::file::MMapShared, coypu::store::LRUCache, 16> buf_type;
-		typedef coypu::store::PositionedStream <buf_type> stream_type;
-		
-		TagOffsetStore(const TagOffsetStore &other) = delete;
-		TagOffsetStore &operator= (const TagOffsetStore &other) = delete;
-
-		std::shared_ptr<stream_type> _offsetStore;
-	 };
-   	
 	 class TagStore {
 	 public:
 		const static uint32_t MAX_TAG_LEN = 128;
@@ -180,7 +160,7 @@ namespace coypu {
 		bool IsOpen () {
 		  return _tagBuf != nullptr;
 		}
-
+ 
 		tag_id_type GetTagCount () {
 		  return _nextId;
 		}
@@ -197,7 +177,45 @@ namespace coypu {
 		std::vector<std::string> _tags;
 		std::unordered_map<std::string, tag_id_type> _tagToId;
 	 };
-	 
+
+	 class TagOffsetStore {
+	 public:
+		typedef Tag tag_type;
+		
+		TagOffsetStore (const std::string &path) noexcept {
+		  _offsetStore = coypu::store::StoreUtil::CreateSimpleStore<stream_type, buf_type>(path, 1);
+		}
+
+		virtual ~TagOffsetStore() {
+		}
+
+		bool Append(const tag_type &tag) {
+		  return _offsetStore->Push(reinterpret_cast<const char *>(&tag), sizeof(tag_type)) == 0;
+		}
+
+		bool ReadNext (tag_type &out) {
+		  return _offsetStore->Pop(reinterpret_cast<char *>(&out), sizeof(tag_type));
+		}
+
+		inline bool IsEmpty() const {
+		  return _offsetStore->Available() == 0;
+		}
+
+		inline uint64_t CurrentOffset() const {
+		  return _offsetStore->CurrentOffset();
+		}
+
+	 private:
+		typedef coypu::store::LogRWStream<coypu::file::MMapShared, coypu::store::LRUCache, 16> buf_type;
+		typedef coypu::store::PositionedStream <buf_type> stream_type;
+		
+		TagOffsetStore(const TagOffsetStore &other) = delete;
+		TagOffsetStore &operator= (const TagOffsetStore &other) = delete;
+
+		std::shared_ptr<stream_type> _offsetStore;
+	 };
+
+	 // Filter tags to streams. Allows for mixing streams (persistent and ephemeral)
 	 template <typename TagType>
 		class TagStream {
 	 public:
@@ -205,12 +223,68 @@ namespace coypu {
 
 		// fd should be eventfd()
 	 TagStream(int fd, write_cb_type set_write,
-				  const std::string &storePath) : _fd(fd), _set_write(set_write),_offsetStore(storePath) {
+				  const std::string &storePath) : _fd(fd), _set_write(set_write),
+		  _offsetStore(storePath), _emptySub(), _emptyTag({}), _maxRecordCount(128), _maxFDCount(16) {
 		}
 
 		virtual ~TagStream() {
 		}
 
+		// ephemeral streams are anonymous so play back can be ignored from tags?
+		
+		int RegisterStream (uint64_t streamId, std::function<int(int, uint64_t, uint64_t)> writecb) {
+		  // how to handle ephemeral
+		  return 0;
+		}
+
+		// this should be called when the output fd is right
+		int StreamWrite(int fd) {
+
+		  // max records per fd
+		  // check cur pos for fd
+		  // stream through tags
+		  // check if fd is sub or this is directed
+		  // lookup stream
+		  // call writecb for stream fd
+		  // fd(offset,len)
+		  // += position for len.
+		  // if not done, then we keep writing. return 1 to keep writing
+		  // offset is relative to the stream and the fd
+		  // fd->stream->offset
+		  
+		  return 0;
+		}
+
+		int Register (int fd) {
+		  while (_subs.size() < fd+1) {
+			 _subs.resize(_subs.size()+16, std::pair<bool, TagSub>(false, _emptySub));
+			 _curPos.resize(_subs.size(), _emptyTag); // make sure size matches
+		  }
+		  
+		  _subs[fd].first = true;
+		  _curPos[fd]._offset = 0;
+		  _curPos[fd]._len = 0;
+		  return 0; 
+		}
+
+		int Unregister (int fd) {
+		  if (fd < _subs.size()) {
+			 _subs[fd].second = false;
+
+			 // TODO Erase from tag2fd
+			 
+			 _subs[fd].second.ClearAll();
+		  }
+		  return 0;
+		}
+
+		void Subscribe (int fd, uint32_t tag) {
+		  if (tag < _tag2fd.size()) {
+			 _tag2fd.resize(_tag2fd.size()+16, std::vector<int>());
+		  }
+		  _tag2fd[tag].push_back(fd);
+		  _subs[fd].second.Set(tag);
+		}
 
 		int Read (int fd) {
 		  uint64_t u = UINT64_MAX;
@@ -218,20 +292,42 @@ namespace coypu {
 		  if (r > 0) {
 			 assert(r == sizeof(uint64_t));
 			 if (r < sizeof(uint64_t)) return -128;
+
+			 TagType tag = {};
+			 uint32_t recordCount = 0;
+			 while (!_offsetStore.IsEmpty() && recordCount < _maxRecordCount) {
+				if (!_offsetStore.ReadNext(tag)) {
+				  assert(false);
+				}
+
+				if (tag._fd > 0) {
+				  _set_write(fd);
+				} else {
+				  assert(tag._tagId < _tag2fd.size());
+
+				  for (int fd : _tag2fd[tag._tagId]) {
+					 if (_subs[fd].first) {
+						_set_write(fd);
+					 }
+				  }
+				}
+
+				++recordCount;
+			 }
+
+			 if (!_offsetStore.IsEmpty()) {
+				// could be less sycalls if we didnt force write.
+				_set_write(fd);
+			 }
 			 
  			 return 0;
 		  }
 		  return r;
 		}
 
-		// this should be called when the output fd is right
-		int StreamWrite(int fd) {
-		  return -1;
-		}
-
 		int Write (int fd) {
 		  // write queue
-		  uint64_t u = 1;
+		  uint64_t u = _offsetStore.CurrentOffset();
 		  int r = ::write(_fd, &u, sizeof(uint64_t));
 								
 		  if (r > 0) {
@@ -244,14 +340,15 @@ namespace coypu {
 		  return -1;
 		}
 
-		int Close (int fd) {
-		  return -1;
-		}
-
 		void Queue (const TagType &tag) {
 		  _offsetStore.Append(tag);
 		  _set_write(_fd);
 		}
+
+		int Close (int fd) {
+		  return -1;
+		}
+
 
 	 private:
 		TagStream (const TagStream &other) = delete;
@@ -263,7 +360,13 @@ namespace coypu {
 		write_cb_type _set_write;
 		TagOffsetStore _offsetStore;
 
+		std::vector <std::pair<bool,TagSub>> _subs;
+		std::vector <std::vector<int>> _tag2fd;
+		std::vector <TagType> _curPos;
+		TagSub _emptySub;
+		TagType _emptyTag;
+		uint32_t _maxRecordCount;
+		uint16_t _maxFDCount;
 	 };
   }
 }
-

@@ -101,7 +101,6 @@ namespace  coypu
                     return EPollHelper::Modify(_fd, fd, &event);
                 }
 
-
                 int Unregister (int fd) {
                     int r = EPollHelper::Delete(_fd, fd);
 						  _fdToCB[fd].reset();

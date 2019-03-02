@@ -99,7 +99,6 @@ namespace coypu {
 		  }
 
 		  bool SetPosition (off64_t offset) {
-			 if (offset % _pageSize == 0) return true;
 			 return PositionPage(offset) == 0;
 		  }
 
@@ -111,6 +110,17 @@ namespace coypu {
 			 _offset = (offset / _pageSize) * _pageSize; // to nearets page
 			 
 			 if (!_anonymous) {
+				off64_t size = 0;
+				if (MMapProvider::GetSize(_fd, size) == -1) {
+				  return -4;
+				}
+				
+				if (size == _offset) {
+				  if (MMapProvider::Truncate(_fd, _offset+_pageSize)) {
+					 return -1;
+				  }
+				}
+				
 				if (MMapProvider::LSeekSet(_fd, _offset) != _offset) {
 				  return -2;
 				}

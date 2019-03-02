@@ -87,6 +87,15 @@ int FileUtil::GetSize (int fd, off64_t &offset) {
   return i;
 }
 
+int MMapShared::GetSize (int fd, off64_t &offset) {
+  struct stat s = {};
+  int i = ::fstat(fd, &s);
+  if (i == 0) {
+    offset = s.st_size;
+  }
+  return i;
+}
+  
 void * MMapShared::MMapWrite (int fd, off64_t offset, size_t len) {
   return ::mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
 }
@@ -125,4 +134,13 @@ off64_t MMapAnon::LSeekSet (int fd, off64_t offset) {
 
 int MMapAnon::Truncate (int fd, off64_t offset) {
   return FileUtil::Truncate(fd, offset);
+}
+
+int MMapAnon::GetSize (int fd, off64_t &offset) {
+  struct stat s = {};
+  int i = ::fstat(fd, &s);
+  if (i == 0) {
+    offset = s.st_size;
+  }
+  return i;
 }

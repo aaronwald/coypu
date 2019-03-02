@@ -45,6 +45,7 @@ namespace coypu {
       static int MUnmap (void *addr, size_t len);
 		static off64_t LSeekSet (int fd, off64_t offset);
 		static int Truncate (int fd, off64_t offset);
+      static int GetSize (int fd, off64_t &offset);
 	 };
 	 
 	 class MMapAnon {
@@ -61,6 +62,7 @@ namespace coypu {
       static int MUnmap (void *addr, size_t len);
 		static off64_t LSeekSet (int fd, off64_t offset);
 		static int Truncate (int fd, off64_t offset);
+		static int GetSize (int fd, off64_t &offset);
 	 };
 
   }
