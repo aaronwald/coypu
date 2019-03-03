@@ -3,9 +3,11 @@
 #include "gtest/gtest.h"
 #include "cache/tagcache.h"
 #include "file/file.h"
+#include "event/event_mgr.h"
 
 using namespace coypu::cache;
 using namespace coypu::file;
+using namespace coypu::event;
 
 TEST(CacheTest, TagTest1) 
 {
@@ -91,4 +93,57 @@ TEST(CacheTest, TagTest4)
 	ASSERT_EQ(tagCache3.GetTagCount(), 3);
 	
 	ASSERT_NO_THROW(FileUtil::Remove(buf));
+}
+
+struct DummyLog {
+  void perror (int, const char *) { }
+  template <typename... Args> const void warn(const char *msg, Args... args) { }
+};
+
+TEST(CacheTest, TagEventTest1) 
+{
+	char buf[1024];
+	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
+	ASSERT_NO_THROW(FileUtil::Close(fd));
+
+	EventManager <DummyLog *> eventMgr(nullptr);
+	eventMgr.Init();
+
+	int eventfd = EventFDHelper::CreateNonBlockEventFD(0);
+	int clientfd = EventFDHelper::CreateNonBlockEventFD(0);
+			
+	std::function<int(int)> set_write = std::bind(&EventManager<DummyLog *>::SetWrite, std::ref(eventMgr), std::placeholders::_1);
+	TagStream<Tag> tagStream(eventfd, set_write, buf);
+
+	bool done = false;
+	uint32_t tagId = 89123;
+	uint32_t streamId = 9812;
+
+	std::function <int(int)> close = std::bind(&TagStream<Tag>::Close, std::ref(tagStream), std::placeholders::_1);
+	std::function <int(int)> read = std::bind(&TagStream<Tag>::Read, std::ref(tagStream), std::placeholders::_1);
+	std::function <int(int)> write = std::bind(&TagStream<Tag>::Write, std::ref(tagStream), std::placeholders::_1);
+
+	std::function<int(int, uint64_t, uint64_t)> streamCB = [&done] (int fd, uint64_t off, uint64_t len) {
+	  std::cout << "Stream out" << std::endl;
+	  done = true;
+	  return 0;
+	};
+
+	tagStream.Register(clientfd);
+	tagStream.RegisterStream(clientfd, streamId, streamCB);
+	tagStream.Subscribe(clientfd, tagId);
+	
+	ASSERT_EQ(eventMgr.Register(eventfd, read, write, close), 0);
+	
+	Tag tag (0, 8, tagId, -1, 0);
+	tagStream.Queue(tag);
+
+	while (!done) {
+	  eventMgr.Wait();
+	}
+	eventMgr.Close();
+
+	ASSERT_NO_THROW(FileUtil::Remove(buf));
+	::close(eventfd);
+	::close(clientfd);
 }

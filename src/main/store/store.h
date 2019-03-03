@@ -797,6 +797,10 @@ namespace coypu {
           return _stream->Available() - _curOffset;
         }
 
+		  typename S::offset_type TotalAvailable () const {
+          return _stream->Available();
+        }
+
         bool Peak (typename S::offset_type offset, char &d) {
           return _stream->Peak(_curOffset+offset, d);
         }
@@ -864,6 +868,7 @@ namespace coypu {
         typename S::offset_type CurrentOffset() const {
           return _curOffset;
         }
+
 
 		  bool ZeroCopyReadNext (typename S::offset_type offset, const void **data, int *len) {
 			 bool b =  _stream->ZeroCopyReadNext(offset, data, len);
@@ -951,7 +956,12 @@ namespace coypu {
 		  typename S::offset_type Available () const {
 			 return _stream->Available();
 		  }
-						
+
+		  typename S::offset_type TotalAvailable () const {
+			 return _stream->TotalAvailable();
+		  }
+
+		  
         typename S::offset_type Available (int fd) const {
           if (fd >= _curOffsets.size()) return 0;
           if (_curOffsets[fd] == UINT64_MAX) return 0; //unregistered

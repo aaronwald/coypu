@@ -40,7 +40,9 @@ namespace  coypu
                 int Init () {
                     _fd = coypu::event::EPollHelper::Create();
                     if (_fd < 0) {
-                        _logger->perror(errno, "Failed to create epoll");
+							 if (_logger) {
+								_logger->perror(errno, "Failed to create epoll");
+							 }
                         return -1;
                     }
                     return 0;
@@ -118,7 +120,9 @@ namespace  coypu
                     int count = ::epoll_wait(_fd, _outEvents, _maxEvents, _timeout);
                     if (count > 0) {
                         if (count == _maxEvents) {
+								  if (_logger) {
                             _logger->warn("Hit epoll _maxEvents [{0}].", _maxEvents);
+								  }
                         }
                         for (int i = 0; i < count; ++i) {
 									 std::shared_ptr<event_cb_type> &cb = _fdToCB[_outEvents[i].data.fd];
@@ -174,10 +178,14 @@ namespace  coypu
                         _closeSet.clear();
                     } else if (count < 0) {
 							 if (errno == EINTR) {
-								_logger->perror(errno, "epoll_wait");
+								if (_logger) {
+								  _logger->perror(errno, "epoll_wait");
+								}
 								return 0;
 							 } else {
-								_logger->perror(errno, "epoll_wait");
+								if (_logger) {
+								  _logger->perror(errno, "epoll_wait");
+								}
 							 }
                     }
                     return count;
