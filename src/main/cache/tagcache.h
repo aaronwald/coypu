@@ -286,6 +286,7 @@ namespace coypu {
 
 				if (!(data->_currentTag._flags & TF_PERSISTENT)) {
 				  // ephemeral test
+				  assert(data->_currentTag._streamId < data->_streams.size());
 				  if (data->_currentTag._offset < data->_streams[data->_currentTag._streamId]._startOffset) {
 					 // skip this record on playback
 					 continue;
@@ -327,6 +328,8 @@ namespace coypu {
 			 _fds.resize(_fds.size()+16, nullptr);
 		  }
 
+		  if (_fds[fd]) return -1;
+		  
 		  _fds[fd] = std::make_shared<FDData>();
 
 		  return 0; 
@@ -335,6 +338,9 @@ namespace coypu {
 		int RegisterStream (int fd, uint64_t streamId, std::function<int(int, uint64_t, uint64_t)> writecb) {
 		  assert(fd < _fds.size());
 
+		  if (fd >= _fds.size()) return -1;
+		  if (!_fds[fd]) return -1;
+		  
 		  while (_fds[fd]->_streams.size() < streamId+1) {
 			 _fds[fd]->_streams.resize(_fds[fd]->_streams.size()+16, _emptyPosition);
 		  }
@@ -345,11 +351,23 @@ namespace coypu {
 		  return 0;
 		}
 
+		int Start (int fd, off64_t tagOffset) {
+		  if (fd >= _fds.size()) return -1;
+		  if (!_fds[fd]) return -1;
+
+		  _fds[fd]->_registered = true;
+
+		  _fds[fd]->_currentOffset = tagOffset;
+		  _set_write(fd);
+
+		  return 0;
+		}
+
 		int Unregister (int fd) {
 		  if (fd < _fds.size()) {
 			 _fds[fd] = nullptr;
 
-			 // Very slow
+			 // TODO Optimze. Very slow now.
 			 for (size_t tagId : _fds[fd]->_subs.GetMaxTag()) {
 				_tag2fd[tagId].erase(tagId);
 			 }
@@ -390,7 +408,7 @@ namespace coypu {
 				  assert(tag._tagId < _tag2fd.size());
 
 				  for (int fd : _tag2fd[tag._tagId]) {
-					 if (_fds[fd]) {
+					 if (_fds[fd] && _fds[fd]->_registered) {
 						_set_write(fd);
 					 }
 				  }
@@ -459,10 +477,11 @@ namespace coypu {
 		  std::vector<StreamPosition> _streams;
 
 		  Tag _currentTag;
+		  bool _registered;
 		  uint64_t _currentOffset;
 		  uint64_t _written;   // handle partial
 		  
-		  FDDataS () : _currentOffset(0), _written(0) {
+		  FDDataS () : _registered(false), _currentOffset(0), _written(0) {
 		  }
 		} FDData;
 		std::vector <std::shared_ptr<FDData>> _fds;
