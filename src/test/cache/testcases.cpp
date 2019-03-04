@@ -127,7 +127,7 @@ TEST(CacheTest, TagEventTest1)
 	std::function <int(int)> write = std::bind(&TagStream<Tag>::Write, std::ref(tagStream), std::placeholders::_1);
 
 	std::function<int(int, uint64_t, uint64_t)> streamCB = [&msgCount] (int fd, uint64_t off, uint64_t len) {
-	  std::cout << "Stream out data " << off << "," << len << std::endl;
+	  //std::cout << "Stream out data " << off << "," << len << std::endl;
 	  ++msgCount;
 	  return len;
 	};
@@ -184,7 +184,7 @@ TEST(CacheTest, TagEventTest2)
 	std::function <int(int)> write = std::bind(&TagStream<Tag>::Write, std::ref(tagStream), std::placeholders::_1);
 
 	std::function<int(int, uint64_t, uint64_t)> streamCB = [&msgCount] (int fd, uint64_t off, uint64_t len) {
-	  std::cout << "Stream out data " << off << "," << len << std::endl;
+	  //std::cout << "Stream out data " << off << "," << len << std::endl;
 	  if (off % 4 == 0)
 		 ++msgCount;
 
