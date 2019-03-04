@@ -117,18 +117,19 @@ TEST(CacheTest, TagEventTest1)
 	std::function<int(int)> set_write = std::bind(&EventManager<DummyLog *>::SetWrite, std::ref(eventMgr), std::placeholders::_1);
 	TagStream<Tag> tagStream(eventfd, set_write, buf);
 
-	bool done = false;
+	uint16_t msgCount = 0;
 	uint32_t tagId = 89123;
 	uint32_t streamId = 9812;
-
+	uint32_t streamId2 = 1232;
+	
 	std::function <int(int)> close = std::bind(&TagStream<Tag>::Close, std::ref(tagStream), std::placeholders::_1);
 	std::function <int(int)> read = std::bind(&TagStream<Tag>::Read, std::ref(tagStream), std::placeholders::_1);
 	std::function <int(int)> write = std::bind(&TagStream<Tag>::Write, std::ref(tagStream), std::placeholders::_1);
 
-	std::function<int(int, uint64_t, uint64_t)> streamCB = [&done] (int fd, uint64_t off, uint64_t len) {
-	  std::cout << "Stream out data " << std::endl;
-	  done = true;
-	  return 0;
+	std::function<int(int, uint64_t, uint64_t)> streamCB = [&msgCount] (int fd, uint64_t off, uint64_t len) {
+	  std::cout << "Stream out data " << off << "," << len << std::endl;
+	  ++msgCount;
+	  return len;
 	};
 
 	tagStream.Register(fds[1]);
@@ -139,14 +140,75 @@ TEST(CacheTest, TagEventTest1)
 
 	ASSERT_EQ(eventMgr.Register(eventfd, read, write, close), 0);
 	ASSERT_EQ(eventMgr.Register(fds[1], nullptr, clientWrite, nullptr), 0);
-	
-	Tag tag (0, 8, streamId, tagId, -1, 0);
-	tagStream.Queue(tag);
 
-	while (!done) {
+	tagStream.Queue(Tag(0, 8, streamId, tagId, -1, 0));
+	tagStream.Queue(Tag(0, 8, streamId2, tagId, -1, 0));
+	tagStream.Queue(Tag(8, 16, streamId, tagId, -1, 0));
+
+	while (msgCount < 2) {
 	  eventMgr.Wait();
 	}
 	eventMgr.Close();
+	ASSERT_EQ(msgCount, 2);
+
+	ASSERT_NO_THROW(FileUtil::Remove(buf));
+	::close(eventfd);
+	::close(fds[0]);
+	::close(fds[1]);
+}
+
+TEST(CacheTest, TagEventTest2) 
+{
+	char buf[1024];
+	int fd = FileUtil::MakeTemp("coypu", buf, sizeof(buf));
+	ASSERT_NO_THROW(FileUtil::Close(fd));
+
+	EventManager <DummyLog *> eventMgr(nullptr);
+	eventMgr.Init();
+
+	int fds[2];
+	ASSERT_EQ(pipe(fds), 0);
+
+	int eventfd = EventFDHelper::CreateNonBlockEventFD(0);
+			
+	std::function<int(int)> set_write = std::bind(&EventManager<DummyLog *>::SetWrite, std::ref(eventMgr), std::placeholders::_1);
+	TagStream<Tag> tagStream(eventfd, set_write, buf);
+
+	uint16_t msgCount = 0;
+	uint32_t tagId = 89123;
+	uint32_t streamId = 9812;
+	uint32_t streamId2 = 1232;
+	
+	std::function <int(int)> close = std::bind(&TagStream<Tag>::Close, std::ref(tagStream), std::placeholders::_1);
+	std::function <int(int)> read = std::bind(&TagStream<Tag>::Read, std::ref(tagStream), std::placeholders::_1);
+	std::function <int(int)> write = std::bind(&TagStream<Tag>::Write, std::ref(tagStream), std::placeholders::_1);
+
+	std::function<int(int, uint64_t, uint64_t)> streamCB = [&msgCount] (int fd, uint64_t off, uint64_t len) {
+	  std::cout << "Stream out data " << off << "," << len << std::endl;
+	  if (off % 4 == 0)
+		 ++msgCount;
+
+	  return len > 4 ? 4 : len;
+	};
+
+	tagStream.Register(fds[1]);
+	tagStream.RegisterStream(fds[1], streamId, streamCB);
+	tagStream.Subscribe(fds[1], tagId);
+
+	std::function <int(int)> clientWrite = std::bind(&TagStream<Tag>::StreamWrite, std::ref(tagStream), std::placeholders::_1);
+
+	ASSERT_EQ(eventMgr.Register(eventfd, read, write, close), 0);
+	ASSERT_EQ(eventMgr.Register(fds[1], nullptr, clientWrite, nullptr), 0);
+
+	tagStream.Queue(Tag(0, 8, streamId, tagId, -1, 0));
+	tagStream.Queue(Tag(0, 8, streamId2, tagId, -1, 0));
+	tagStream.Queue(Tag(8, 8, streamId, tagId, -1, 0));
+
+	while (msgCount < 4) {
+	  eventMgr.Wait();
+	}
+	eventMgr.Close();
+	ASSERT_EQ(msgCount, 4);
 
 	ASSERT_NO_THROW(FileUtil::Remove(buf));
 	::close(eventfd);

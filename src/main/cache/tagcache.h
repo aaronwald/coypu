@@ -262,7 +262,7 @@ namespace coypu {
 		  assert(fd < _fds.size());
 		  assert(_fds[fd]);
 		  std::shared_ptr<FDData> &data = _fds[fd];
-		  
+			 
 		  uint64_t maxOffset = _offsetStore.TotalAvailable();
 		  uint32_t count = 0;
 		  while (count < _maxFDCount && data->_currentOffset < maxOffset) {
@@ -276,7 +276,7 @@ namespace coypu {
 				  data->_currentOffset += sizeof(Tag);
 				} else {
 				  // still partial
-				  return 1;
+				  return 1; // keep EPOLLOUT
 				}
 			 } else {
 				if (!_offsetStore.Read(data->_currentOffset, data->_currentTag)) {
@@ -293,13 +293,21 @@ namespace coypu {
 				}
 
 				if (data->_currentTag._fd == fd || data->_subs.IsSet(data->_currentTag._tagId)) {
-				  int x = data->_streams[data->_currentTag._streamId]._cb(fd,data->_currentTag._offset, data->_currentTag._len);
-				  if (x < 0) return -1;
-				  if (x < data->_currentTag._len) {
-					 data->_written = x;
-					 return 1;
+				  if (data->_currentTag._streamId < data->_streams.size() &&
+						data->_streams[data->_currentTag._streamId]._cb) {
+					 assert(data->_currentTag._streamId < data->_streams.size());
+					 assert(data->_streams[data->_currentTag._streamId]._cb);
+					 int x = data->_streams[data->_currentTag._streamId]._cb(fd,data->_currentTag._offset, data->_currentTag._len);
+					 if (x < 0) return -1;
+					 if (x < data->_currentTag._len) {
+						data->_written = x;
+						return 1; // partial - keep EPOLLOUT
+					 } else {
+						data->_currentOffset += sizeof(Tag);
+					 }
 				  } else {
-					 data->_currentOffset += x;
+					 // skip
+					 data->_currentOffset += sizeof(Tag);
 				  }
 				} else {
 				  // skip
@@ -307,11 +315,11 @@ namespace coypu {
 				}
 			 }
 
-			 data->_written = 0;
+			 data->_written = 0; // make sure to zero for next record
 			 ++count;
 		  }
 			 
-		  return data->_currentOffset == maxOffset ? 0 : 1;
+		  return data->_currentOffset == maxOffset ? 0 : 1; // Request EPOLLOUT if needed
 		}
 
 		int Register (int fd) {
