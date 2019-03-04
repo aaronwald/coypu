@@ -28,20 +28,22 @@ namespace coypu {
 	 struct Tag {
 		uint64_t _offset;
 		uint64_t _len;
+		uint64_t _streamId;
 		uint32_t _tagId;
-
 		int _fd;             // one shot how. set to -2 when done?
-		char _flags;
-		char _pad[7];
 
-		Tag () : _offset(0), _len(0), _tagId(0), _fd(-1), _flags(0) {
+		char _flags;
+		char _pad[31];
+
+		Tag () : _offset(0), _len(0), _streamId(0), _tagId(0), _fd(-1), _flags(0) {
 		}
 
 		Tag (uint64_t offset,
 			  uint64_t len,
+			  uint64_t streamId,
 			  uint32_t tagId,
 			  int fd,
-			  char flags) : _offset(offset), _len(len), _tagId(tagId), _fd(fd), _flags(flags) {
+			  char flags) : _offset(offset), _len(len), _streamId(streamId), _tagId(tagId), _fd(fd), _flags(flags) {
 		}
 	 };
 
@@ -97,7 +99,7 @@ namespace coypu {
 		typedef uint32_t tag_id_type;
 		
 		TagStore (const std::string &path) noexcept : _nextId(0) {
-		  static_assert(sizeof(Tag) == 32, "TagMsg Size Check");
+		  static_assert(sizeof(Tag) == 64, "TagMsg Size Check");
 		  _tagBuf = coypu::store::StoreUtil::CreateSimpleBuf<buf_type>(path, 1);
 		}
 		
@@ -218,6 +220,10 @@ namespace coypu {
 		  return _offsetStore->Pop(reinterpret_cast<char *>(&out), sizeof(tag_type));
 		}
 
+		bool Read (off64_t offset, tag_type &out) {
+		  return _offsetStore->Pop(reinterpret_cast<char *>(&out), offset, sizeof(tag_type));
+		}
+
 		inline bool IsEmpty() const {
 		  return _offsetStore->Available() == 0;
 		}
@@ -254,27 +260,58 @@ namespace coypu {
 		// this fd will be ready for write when a tag exists which matches
 		int StreamWrite(int fd) {
 		  assert(fd < _fds.size());
-		  FDData &data = _fds[fd];
+		  assert(_fds[fd]);
+		  std::shared_ptr<FDData> &data = _fds[fd];
 		  
-		  // TODO Stream Write
+		  uint64_t maxOffset = _offsetStore.TotalAvailable();
+		  uint32_t count = 0;
+		  while (count < _maxFDCount && data->_currentOffset < maxOffset) {
+			 if (data->_written) {
+				// partial
+				int x = data->_streams[data->_currentTag._streamId]._cb(fd,data->_currentTag._offset + data->_written, data->_currentTag._len - data->_written);
+				if (x < 0) return -1;
+				data->_written += x;
+				if (data->_written == data->_currentTag._len) {
+				  // done
+				  data->_currentOffset += sizeof(Tag);
+				} else {
+				  // still partial
+				  return 1;
+				}
+			 } else {
+				if (!_offsetStore.Read(data->_currentOffset, data->_currentTag)) {
+				  assert(false);
+				  return -1;
+				}
 
-		  // only restore non ephemeral on restart
-		  // snap start pos
-		  
-		  //uint16_t fdCount = 0;
-		  // max records per fd
-		  // check cur pos for fd
-		  // stream through tags
-		  // check if fd is sub or this is directed
-		  // lookup stream
-		  // call writecb for stream fd
-		  // fd(offset,len)
-		  // += position for len.
-		  // if not done, then we keep writing. return 1 to keep writing
-		  // offset is relative to the stream and the fd
-		  // fd->stream->offset
-		  
-		  return 0;
+				if (!(data->_currentTag._flags & TF_PERSISTENT)) {
+				  // ephemeral test
+				  if (data->_currentTag._offset < data->_streams[data->_currentTag._streamId]._startOffset) {
+					 // skip this record on playback
+					 continue;
+				  }
+				}
+
+				if (data->_currentTag._fd == fd || data->_subs.IsSet(data->_currentTag._tagId)) {
+				  int x = data->_streams[data->_currentTag._streamId]._cb(fd,data->_currentTag._offset, data->_currentTag._len);
+				  if (x < 0) return -1;
+				  if (x < data->_currentTag._len) {
+					 data->_written = x;
+					 return 1;
+				  } else {
+					 data->_currentOffset += x;
+				  }
+				} else {
+				  // skip
+				  data->_currentOffset += sizeof(Tag);
+				}
+			 }
+
+			 data->_written = 0;
+			 ++count;
+		  }
+			 
+		  return data->_currentOffset == maxOffset ? 0 : 1;
 		}
 
 		int Register (int fd) {
@@ -283,7 +320,6 @@ namespace coypu {
 		  }
 
 		  _fds[fd] = std::make_shared<FDData>();
-		  _fds[fd]->_registered = true;
 
 		  return 0; 
 		}
@@ -295,13 +331,8 @@ namespace coypu {
 			 _fds[fd]->_streams.resize(_fds[fd]->_streams.size()+16, _emptyPosition);
 		  }
 
-		  _fds[fd]->_streams[streamId].cb = writecb;
-		  _fds[fd]->_streams[streamId].startOffset = _offsetStore.TotalAvailable(); // before this not restored if TF_PERSISTENT not set
-
-		  // TODO
-		  _fds[fd]->_streams[streamId].curOffset = 0;
-		  _fds[fd]->_streams[streamId].length = 0;
-		  _fds[fd]->_streams[streamId].written = 0;
+		  _fds[fd]->_streams[streamId]._cb = writecb;
+		  _fds[fd]->_streams[streamId]._startOffset = _offsetStore.TotalAvailable(); // before this not restored if TF_PERSISTENT not set
 
 		  return 0;
 		}
@@ -351,7 +382,7 @@ namespace coypu {
 				  assert(tag._tagId < _tag2fd.size());
 
 				  for (int fd : _tag2fd[tag._tagId]) {
-					 if (_fds[fd]->_registered) {
+					 if (_fds[fd]) {
 						_set_write(fd);
 					 }
 				  }
@@ -410,19 +441,21 @@ namespace coypu {
 		TagOffsetStore _offsetStore;
 
 		typedef struct StreamPositionS {
-		  stream_cb_type cb;
-		  uint64_t startOffset;
-		  
-		  uint64_t curOffset; // 
-		  uint64_t length;    //
-		  uint64_t written;   // handle partial
+		  stream_cb_type _cb;
+		  uint64_t _startOffset; // earlier wont be restored for the fd if not persistent
 		} StreamPosition;
 		StreamPosition _emptyPosition;
 
 		typedef struct FDDataS {
-		  bool _registered;
 		  TagSub _subs;
 		  std::vector<StreamPosition> _streams;
+
+		  Tag _currentTag;
+		  uint64_t _currentOffset;
+		  uint64_t _written;   // handle partial
+		  
+		  FDDataS () : _currentOffset(0), _written(0) {
+		  }
 		} FDData;
 		std::vector <std::shared_ptr<FDData>> _fds;
 		FDData _emptyFD;

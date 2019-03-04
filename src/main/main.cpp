@@ -982,7 +982,8 @@ void StreamGDAX (std::shared_ptr<CoypuContext> contextSP, const std::string &hos
 				  if (!context->_tagStore->GetOrCreateTag(product, tagId)) {
 					 context->_consoleLogger->error("Failed to create tag for [{0}]", product);
 				  }
-				  context->_tagManager->Queue(Tag(before,after-before,tagId,-1,TF_PERSISTENT));
+				  uint64_t streamId = 1;
+				  context->_tagManager->Queue(Tag(before,after-before,streamId,tagId,-1,TF_PERSISTENT));
 				  /*
 				  char pub[1024];
 				  size_t len = ::snprintf(pub, 1024, "Trade %s %s %s %zu %s %d", product, vol24, px, tradeId, lastSize, SOURCE_GDAX);
