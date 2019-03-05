@@ -133,7 +133,7 @@ TEST(CacheTest, TagEventTest1)
 	};
 
 	tagStream.Register(fds[1]);
-	tagStream.RegisterStream(fds[1], streamId, streamCB);
+	tagStream.RegisterStream(streamId, streamCB);
 	tagStream.Subscribe(fds[1], tagId);
 	ASSERT_EQ(tagStream.Start(fds[1], 0), 0);
 
@@ -195,8 +195,8 @@ TEST(CacheTest, TagEventTest2)
 	// setup stream
 	ASSERT_EQ(tagStream.Register(fds[1]), 0);
 	ASSERT_EQ(tagStream.Register(fds[1]), -1);
-	ASSERT_EQ(tagStream.RegisterStream(fds[0], streamId, streamCB), -1);
-	ASSERT_EQ(tagStream.RegisterStream(fds[1], streamId, streamCB), 0);
+	ASSERT_EQ(tagStream.RegisterStream(streamId, streamCB), 0);
+	ASSERT_EQ(tagStream.RegisterStream(streamId, streamCB), -1);
 	ASSERT_EQ(tagStream.Start(fds[1], 0), 0);
 	tagStream.Subscribe(fds[1], tagId);
 
@@ -260,8 +260,8 @@ TEST(CacheTest, TagEventTest3)
 	// setup stream
 	ASSERT_EQ(tagStream.Register(fds[1]), 0);
 	ASSERT_EQ(tagStream.Register(fds[1]), -1);
-	ASSERT_EQ(tagStream.RegisterStream(fds[0], streamId, streamCB), -1);
-	ASSERT_EQ(tagStream.RegisterStream(fds[1], streamId, streamCB), 0);
+	ASSERT_EQ(tagStream.RegisterStream(streamId, streamCB), 0);
+	ASSERT_EQ(tagStream.RegisterStream(streamId, streamCB), -1);
 	ASSERT_EQ(tagStream.Start(fds[1], sizeof(Tag)), 0);
 	tagStream.Subscribe(fds[1], tagId);
 
