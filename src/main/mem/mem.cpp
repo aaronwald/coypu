@@ -1,4 +1,4 @@
-
+#include <iostream>
 #include <stdio.h>
 #include <numa.h>
 #include <sched.h>
@@ -73,7 +73,9 @@ int CPUManager::SetCPUs (const std::string &cpuStr)
 
 
 bool CPUManager::ParseCPUs (const std::string &cpuStr, cpu_set_t &set) {
-    struct bitmask *cpus = ::numa_parse_cpustring(cpuStr.c_str());
+  // use numa_parse_cpustring_all - supports isolated cpus
+    struct bitmask *cpus = ::numa_parse_cpustring_all(cpuStr.c_str());
+
     if (cpus) {
         int cpuCount = MemManager::GetCPUCount();
         for (int i = 0; i < cpuCount; ++i) {

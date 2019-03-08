@@ -16,7 +16,7 @@ coypu-publish-path: stream/publish/data
 coypu:
   websocket:
     logger: console
-    cpu: 4
+    cpu: 3
 
 do-kraken: true
 sandbox-kraken-host: "ws-sandbox.kraken.com"
