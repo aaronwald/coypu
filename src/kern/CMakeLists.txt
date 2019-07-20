@@ -40,3 +40,5 @@ endforeach()
 
 
 add_library(bpf_modules OBJECT ${OBJS})
+set_target_properties(bpf_modules PROPERTIES LINKER_LANGUAGE C)
+
