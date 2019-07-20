@@ -12,7 +12,8 @@ if(ipo_supported)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
+#list(APPEND CMAKE_MODULE_PATH "/opt/cmake-modules")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 set(CMAKE_FIND_LIBRARY_PREFIXES lib ${CMAKE_FIND_LIBRARY_PREFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES .a .so ${CMAKE_FIND_LIBRARY_SUFFIXES})
@@ -52,10 +53,19 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# DPDK https://github.com/tudang/cmake-dpdk
+find_package (dpdk)
+
+# SPDK 
+find_package (spdk)
+
+SET (RDMA_CORE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/lib/rdma-core/build/include/" )
+SET (RDMA_CORE_LIB_DIR     "${PROJECT_SOURCE_DIR}/lib/rdma-core/build/lib/" )
+
 enable_testing()
 
-SET(CMAKE_CXX_FLAGS         "-nodefaultlibs -stdlib=libc++ -Wall -Wpedantic -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE")
-SET(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG=1 -DSPDLOG_DEBUG_ON=0 -DSPDLOG_TRACE_ON=0 -g")
+SET(CMAKE_CXX_FLAGS         "-nodefaultlibs -stdlib=libc++ -Wall -Wpedantic -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE  -march=native -DRTE_MACHINE_CPUFLAG_SSE -DRTE_MACHINE_CPUFLAG_SSE2 -DRTE_MACHINE_CPUFLAG_SSE3 -DRTE_MACHINE_CPUFLAG_SSSE3 -DRTE_MACHINE_CPUFLAG_SSE4_1 -DRTE_MACHINE_CPUFLAG_SSE4_2 -DRTE_MACHINE_CPUFLAG_AES -DRTE_MACHINE_CPUFLAG_PCLMULQDQ -DRTE_MACHINE_CPUFLAG_AVX -DRTE_MACHINE_CPUFLAG_RDRAND -DRTE_MACHINE_CPUFLAG_FSGSBASE -DRTE_MACHINE_CPUFLAG_F16C -DRTE_MACHINE_CPUFLAG_AVX2 -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -fdiagnostics-color=always ")
+SET(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG=1 -DSPDLOG_DEBUG_ON=0 -DSPDLOG_TRACE_ON=0 -g -fno-omit-frame-pointer")
 SET(CMAKE_CXX_FLAGS_DEBUG   "-O0 -fno-omit-frame-pointer -g -DSPDLOG_DEBUG_ON=1 -DSPDLOG_TRACE_ON=1")
 #SET(CMAKE_EXE_LINKER_FLAGS "-stdlib=libc++")
 
@@ -92,9 +102,12 @@ link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
 #endforeach()
 
 add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
+link_directories(coypu ${RDMA_CORE_LIB_DIR})
 add_dependencies(coypu rust_lib)
 
 target_link_libraries(coypu pthread)
+target_link_libraries(coypu dl)
+target_link_libraries(coypu rt)
 target_link_libraries(coypu crypto)
 target_link_libraries(coypu ssl)
 target_link_libraries(coypu numa)
@@ -108,6 +121,16 @@ target_link_libraries(coypu gcc_s)
 target_link_libraries(coypu gcc)
 target_link_libraries(coypu coypurust)
 target_link_libraries(coypu coypuproto)
+# mellanox
+target_link_libraries(coypu mnl)
+target_link_libraries(coypu ibverbs)
+target_link_libraries(coypu mlx5)
+
+	
+target_include_directories(coypu PRIVATE ${RDMA_CORE_INCLUDE_DIR})
+target_include_directories(coypu PRIVATE ${DPDK_INCLUDE_DIR})
+target_link_libraries(coypu ${DPDK_LIBRARIES})
+
 
 # third party
 target_link_libraries(coypu protobuf)
