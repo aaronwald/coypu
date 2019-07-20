@@ -93,7 +93,7 @@ ExternalProject_Add(rust_lib
 							INSTALL_COMMAND ""
 							LOG_BUILD ON)
 
-link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
+link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/" "${RDMA_CORE_LIB_DIR}")
 
 #get_cmake_property(_variableNames VARIABLES)
 #list (SORT _variableNames)
@@ -102,12 +102,12 @@ link_directories("${CMAKE_SOURCE_DIR}/src/rust-lib/target/release/")
 #endforeach()
 
 add_executable(coypu ${COYPU_SRC} "src/main/main.cpp")
-link_directories(coypu ${RDMA_CORE_LIB_DIR})
 add_dependencies(coypu rust_lib)
 
 target_link_libraries(coypu pthread)
 target_link_libraries(coypu dl)
 target_link_libraries(coypu rt)
+target_link_libraries(coypu pcap)
 target_link_libraries(coypu crypto)
 target_link_libraries(coypu ssl)
 target_link_libraries(coypu numa)
