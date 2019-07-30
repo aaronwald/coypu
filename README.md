@@ -34,6 +34,11 @@ make
 sudo apt install libprotobuf-c-dev protobuf-compiler-grpc protobuf-compiler
 ```
 
+# Rust
+```bash
+curl https://sh.rustup.rs -sSf | sh
+```
+
 # DPDK Build
 
 ```bash
@@ -57,7 +62,7 @@ sed -i 's/CONFIG_RTE_ETHDEV_RXTX_CALLBACKS=n/CONFIG_RTE_ETHDEV_RXTX_CALLBACKS=y/
 #sed -i 's/CONFIG_RTE_ETHDEV_PROFILE_WITH_VTUNE=n/CONFIG_RTE_ETHDEV_PROFILE_WITH_VTUNE=y/' config/common_base
 #  -O0 -g"
 make config T=x86_64-native-linuxapp-gcc
-make EXTRA_CFLAGS='-Wno-error=missing-prototypes -I$HOME/dev/coypu/lib/rdma-core/build/include' EXTRA_LDFLAGS='-L$HOME/dev/coypu/lib/rdma-core/build/lib' PKG_CONFIG_PATH='$HOME/dev/coypu/lib//rdma-core/build/lib/pkgconfig' -j 4
+make EXTRA_CFLAGS="-Wno-error=missing-prototypes -I$HOME/dev/coypu/lib/rdma-core/build/include" EXTRA_LDFLAGS="-L$HOME/dev/coypu/lib/rdma-core/build/lib" PKG_CONFIG_PATH="$HOME/dev/coypu/lib//rdma-core/build/lib/pkgconfig" -j 4
 sudo make install prefix=../3rd/dpdk
 cd ../..
 ```
