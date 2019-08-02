@@ -42,6 +42,7 @@ endfunction()
 # Init submodules
 git_submodule("libs/rapidjson")
 git_submodule("libs/seqlock")
+git_submodule("libs/spdlog")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(coypu_VERSION_MAJOR 0)
@@ -78,6 +79,7 @@ file(GLOB_RECURSE COYPU_TEST_SRC ${PROJECT_SOURCE_DIR}/src/test/*.cpp)
 include_directories(${PROJECT_SOURCE_DIR}/src/main)
 include_directories(${PROJECT_SOURCE_DIR}/libs/rapidjson/include/)
 include_directories(${PROJECT_SOURCE_DIR}/libs/seqlock/include/)
+include_directories(${PROJECT_SOURCE_DIR}/libs/spdlog/include/)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/src)
 
 set(BPF_SRC ${PROJECT_SOURCE_DIR}/src/bpf/bpf_load.c ${PROJECT_SOURCE_DIR}/src/bpf/libbpf.c ${PROJECT_SOURCE_DIR}/src/bpf/nutria_bpf.c)

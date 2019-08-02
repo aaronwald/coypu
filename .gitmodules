@@ -4,3 +4,6 @@
 [submodule "libs/seqlock"]
 	path = libs/seqlock
 	url = https://github.com/rigtorp/Seqlock.git
+[submodule "libs/spdlog"]
+	path = libs/spdlog
+	url = https://github.com/gabime/spdlog.git
