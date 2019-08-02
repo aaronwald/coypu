@@ -29,9 +29,9 @@ make
  * [openssl](https://www.openssl.org/) 
  * [Googletest](https://github.com/google/googletest)
 
-# Protobuf
+# Protobuf, nghttp2
 ```bash
-sudo apt install libprotobuf-c-dev protobuf-compiler-grpc protobuf-compiler
+sudo apt install libprotobuf-c-dev protobuf-compiler-grpc protobuf-compiler libnghttp2-dev
 ```
 
 # Rust
